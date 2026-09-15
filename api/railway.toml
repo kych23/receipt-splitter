@@ -1,0 +1,10 @@
+[build]
+builder = "RAILPACK"
+
+[deploy]
+# Migrations run before the new container receives traffic; later migrations must stay
+# backward-compatible with the previous app version (expand → deploy → contract).
+preDeployCommand = ["uv run --frozen --no-dev alembic upgrade head"]
+startCommand = "uv run --frozen --no-dev uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/readyz"
+healthcheckTimeout = 60

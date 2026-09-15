@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: receipt_splitter_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/receipt_splitter_test
+      DATABASE_URL_TEST: postgresql+psycopg://postgres:postgres@localhost:5432/receipt_splitter_test
+      REQUIRE_DB_TESTS: "1"
+      HYPOTHESIS_PROFILE: ci
+      ENVIRONMENT: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.7"
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app
+      - run: uv run pytest
+      - name: OpenAPI schema is up to date
+        run: |
+          uv run python -m app.scripts.export_openapi
+          test -z "$(git status --porcelain -- ../web/src/lib/api/openapi.json)"
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - name: Generated API types are up to date
+        run: |
+          npm run gen:api
+          test -z "$(git status --porcelain -- src/lib/api/schema.d.ts)"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000

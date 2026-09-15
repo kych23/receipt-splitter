@@ -1,0 +1,47 @@
+[project]
+name = "receipt-splitter-api"
+version = "0.1.0"
+description = "API for receipt-splitter: receipt parsing and exact per-person bill allocation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2.0",
+    "alembic",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "hypothesis",
+    "httpx",
+    "ruff",
+    "mypy",
+    "python-dotenv",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+# The local alembic/ migrations folder would otherwise make ruff treat the package as first-party.
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"] # load_dotenv must run before importing app
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests/domain"]
+testpaths = ["tests"]
+markers = ["db: requires Postgres"]
