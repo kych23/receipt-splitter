@@ -80,7 +80,11 @@ def test_catalog_names_and_predicates(migrated_engine: Engine) -> None:
                 FROM pg_constraint c
                 JOIN pg_class t ON t.oid = c.conrelid
                 JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE n.nspname = 'public' AND t.relname <> 'alembic_version'
+                WHERE n.nspname = 'public'
+                  AND t.relname <> 'alembic_version'
+                  -- Postgres 18+ also records NOT NULL as auto-named constraints (contype 'n');
+                  -- nullability is already verified by test_orm_matches_migration.
+                  AND c.contype <> 'n'
                 """
             )
         ).all()

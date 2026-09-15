@@ -12,7 +12,7 @@
 |---|---|---|
 | web | Next.js (version produced by `create-next-app@latest` at scaffold time, pinned exactly in `package.json`), App Router, TypeScript strict, Tailwind, ESLint (flat config), Prettier, Vitest + Testing Library. **Node 24 LTS** (`.nvmrc` = `24`, `package.json` `"engines": {"node": ">=24 <25"}`) | Vercel (Node 24.x) |
 | api | FastAPI, Python 3.13 (`api/.python-version` = `3.13`), `uv` 0.9.7, SQLAlchemy 2.0 (**sync** engine, psycopg 3), Alembic, pydantic v2, pydantic-settings | Railway |
-| db | **PostgreSQL 16** everywhere (local: Homebrew `postgresql@16`; CI: `postgres:16` service; prod: Railway Postgres pinned to major 16, verified with `SELECT version()` during deploy) | Railway |
+| db | **PostgreSQL 18** everywhere (local: Homebrew `postgresql@18`; CI: `postgres:18` service; prod: Railway Postgres template default, verified as 18.6 with `SELECT version()` during deploy) | Railway |
 | object storage | S3-compatible (decided in Slice 2) | — |
 | vision LLM | behind `ReceiptParser` protocol; provider chosen by Week-1 benchmark (Slice 2) | — |
 | auth | decided in Slice 3 design; data model carries `users.id UUID` now | — |
@@ -616,7 +616,7 @@ Behavior:
 Triggers: `push` to `main`, `pull_request` targeting `main`. `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }`.
 
 **api job** (`runs-on: ubuntu-latest`, `defaults.run.working-directory: api`):
-- `services.postgres`: `image: postgres:16`, `env: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: receipt_splitter_test}`, `ports: ["5432:5432"]`, `options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10`.
+- `services.postgres`: `image: postgres:18`, `env: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: receipt_splitter_test}`, `ports: ["5432:5432"]`, `options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10`.
 - Job `env`: `DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/receipt_splitter_test`, `DATABASE_URL_TEST` (same), `REQUIRE_DB_TESTS: "1"`, `HYPOTHESIS_PROFILE: ci`, `ENVIRONMENT: ci`.
 - Steps: `actions/checkout@v4`; `astral-sh/setup-uv@v6` with `version: "0.9.7"`, `python-version: "3.13"`, `enable-cache: true`; `uv sync --frozen`; `uv run ruff check .`; `uv run ruff format --check .`; `uv run mypy app`; `uv run pytest`; `uv run python -m app.scripts.export_openapi`; `test -z "$(git status --porcelain -- ../web/src/lib/api/openapi.json)"`.
 
@@ -654,7 +654,7 @@ markers = ["db: requires Postgres"]
 (Exact dependency versions are resolved by `uv lock` at scaffold time and committed in `uv.lock`; `uv sync` includes the `dev` group by default.)
 
 ### B9. Local dev (README)
-1. `brew install postgresql@16 && brew services start postgresql@16`; `createdb receipt_splitter`; `createdb receipt_splitter_test`. (Stop any other running Homebrew Postgres on 5432 first.)
+1. `brew install postgresql@18 && brew services start postgresql@18`; `createdb receipt_splitter`; `createdb receipt_splitter_test`. (Stop any other running Homebrew Postgres on 5432 first.)
 2. `nvm install 24 && nvm use` (reads `.nvmrc`).
 3. `cd api && cp .env.example .env && uv sync && uv run alembic upgrade head && uv run uvicorn app.main:app --reload --port 8000`. `api/.env.example`:
    ```
@@ -671,7 +671,7 @@ README also contains: project one-liner, Stack table (with versions from B7 step
 
 ### B10. Deploy (interactive with user; nothing created without their confirmation)
 - **GitHub:** user creates repo, pushes `main`; CI must be green before connecting platforms.
-- **Railway (api):** project with a Postgres service (major version 16; verify via `SELECT version()` in Railway's query tab; if the template default differs, choose the v16 image before creating data) and an api service with root directory `api/`. `api/railway.toml`:
+- **Railway (api):** project with a Postgres service (major version 18, the template default; verify via `SELECT version()` in Railway's query tab and keep CI/local on the same major) and an api service with root directory `api/`. `api/railway.toml`:
   ```toml
   [build]
   builder = "RAILPACK"
@@ -711,9 +711,9 @@ README also contains: project one-liner, Stack table (with versions from B7 step
 No auth in Slice 1. `/healthz`, `/readyz` public; fixed enum bodies expose no internals. CORS: explicit allowlist + preview regex; `*` rejected in production. Receipt data validation: pydantic `ParsedReceipt` (`extra="forbid"`, `StrictInt` money).
 
 ### Verification criteria
-1. `cd api && uv run ruff check . && uv run ruff format --check . && uv run mypy app && REQUIRE_DB_TESTS=1 uv run pytest` green locally against Postgres 16: includes `test_config.py`, E1–E13, every error code + precedence tests, P1–P10, schema tests, migration round-trip + `compare_metadata == []`, all constraint/cascade tests, health + CORS tests.
+1. `cd api && uv run ruff check . && uv run ruff format --check . && uv run mypy app && REQUIRE_DB_TESTS=1 uv run pytest` green locally against Postgres 18: includes `test_config.py`, E1–E13, every error code + precedence tests, P1–P10, schema tests, migration round-trip + `compare_metadata == []`, all constraint/cascade tests, health + CORS tests.
 2. `cd web && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build` green (Node 24).
-3. `curl -i localhost:8000/healthz` → 200 `{"status":"ok"}`; `curl -i localhost:8000/readyz` → 200 `{"status":"ok","database":"ok"}`; after `brew services stop postgresql@16`, `/readyz` → 503 `{"status":"unavailable","database":"error"}`; `curl -i -X OPTIONS localhost:8000/readyz -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: GET"` shows `access-control-allow-origin: http://localhost:3000`.
+3. `curl -i localhost:8000/healthz` → 200 `{"status":"ok"}`; `curl -i localhost:8000/readyz` → 200 `{"status":"ok","database":"ok"}`; after `brew services stop postgresql@18`, `/readyz` → 503 `{"status":"unavailable","database":"error"}`; `curl -i -X OPTIONS localhost:8000/readyz -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: GET"` shows `access-control-allow-origin: http://localhost:3000`.
 4. Chrome MCP against a **production build** of web (`cd web && npm run build && npm start`, with `.env.local` pointing at `http://localhost:8000`) at `http://localhost:3000`; only console messages at **warning or error** level are evaluated (info/debug/log ignored): (a) all up → `API: ok`, zero warnings/errors; (b) Postgres stopped → reload shows `API: unavailable (database)`; the only warning/error is the browser's own "Failed to load resource … 503"; (c) uvicorn stopped → reload shows `API unreachable`; the only warnings/errors are the browser's own network-failure messages. In all cases no React/hydration errors.
 5. CI workflow green on first push to GitHub.
 6. Production: Railway `/readyz` 200; Vercel production URL shows `API: ok`; a preview URL (created during B10 by pushing a throwaway branch `deploy-preview-check`, deleted afterwards) shows `API: ok`.
@@ -788,3 +788,8 @@ Round 4: readiness `implementation ready`; critic `design needs revision` (5 gap
 | Critic 4 | Railpack uv unpinned; `uv run` re-resolves | `api/mise.toml` uv 0.9.7; `uv run --frozen --no-dev` |
 | Critic 5 | `detail` "not a contract" vs precedence test | `detail` must contain offending identifiers; format per rule |
 | Readiness (minor) | `make_graph` import; E402; mypy `Settings()`; alembic.ini template; E9 tax wording; strategy return type; preview URL | `from conftest import ...`; per-file E402 ignore; `# type: ignore[call-arg]`; `alembic init` + listed changes; `tax_lines=[]`; `tuple[AllocationInput, str]`; throwaway branch |
+
+## Deploy-time change (2026-09-15)
+| Source | Change | Resolution |
+|---|---|---|
+| Railway deploy | Railway's Postgres template runs 18.6, not 16 | Standardized on PostgreSQL 18 everywhere (local `postgresql@18`, CI `postgres:18`). Catalog test now excludes `contype = 'n'`: Postgres 18 records NOT NULL as auto-named constraints; nullability stays covered by `compare_metadata`. |

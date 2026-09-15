@@ -18,7 +18,7 @@ share summing exactly to the receipt.
 ## Architecture
 
 ```
-web (Next.js, Vercel) ──HTTP──▶ api (FastAPI, Railway) ──▶ PostgreSQL 16 (Railway)
+web (Next.js, Vercel) ──HTTP──▶ api (FastAPI, Railway) ──▶ PostgreSQL 18 (Railway)
 ```
 
 - `api/app/domain/` — pure, framework-free money logic: largest-remainder allocation, receipt
@@ -33,7 +33,7 @@ web (Next.js, Vercel) ──HTTP──▶ api (FastAPI, Railway) ──▶ Postg
 |---|---|
 | Web | Next.js 16.3.5, React 19.2.8, ESLint 9, TypeScript 5, Tailwind 4, Vitest 5, Node 24 |
 | API | Python 3.13, FastAPI 0.141, SQLAlchemy 2.0.53, Alembic 1.20, pydantic 2.13, uv 0.9.7 |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 18 |
 
 ## Local development
 
@@ -41,7 +41,7 @@ Prerequisites: Homebrew, [uv](https://docs.astral.sh/uv/) 0.9.7, [nvm](https://g
 
 1. **Database**
    ```sh
-   brew install postgresql@16 && brew services start postgresql@16
+   brew install postgresql@18 && brew services start postgresql@18
    createdb receipt_splitter
    createdb receipt_splitter_test
    ```
