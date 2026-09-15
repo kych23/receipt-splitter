@@ -1,7 +1,9 @@
-# receipt-splitter
+# ReceiptSplit
 
 Photograph a shared grocery receipt, tag who bought what, and get exact per-person totals —
 with tax charged only on the items that were actually taxed.
+
+**Live:** https://receiptsplit-beta.vercel.app
 
 > **Status:** Slice 1 of v0 — project skeleton, data model, and the allocation engine.
 > Receipt capture, parsing, and the tagging UI arrive in later slices

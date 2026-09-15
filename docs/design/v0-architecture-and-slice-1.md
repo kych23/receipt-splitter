@@ -1,8 +1,8 @@
-# DESIGN DOC — receipt-splitter: v0 architecture + Slice 1 (scaffold, data model, allocator)
+# DESIGN DOC — ReceiptSplit: v0 architecture + Slice 1 (scaffold, data model, allocator)
 
 **Revision:** 4 (addresses design-check rounds 1–4; round-4 fixes applied under user override at the 3-revision cap, not re-reviewed; see Revision log at end)
 
-- **Project:** `receipt-splitter` (new, `~/cs/personal/receipt-splitter`). Monorepo: `web/` (Next.js App Router, TypeScript) + `api/` (FastAPI, Python 3.13).
+- **Project:** ReceiptSplit (repo `receipt-splitter`, `~/cs/personal/receipt-splitter`; live at `https://receiptsplit-beta.vercel.app`). Monorepo: `web/` (Next.js App Router, TypeScript) + `api/` (FastAPI, Python 3.13).
 - **Why:** 4 roommates split shared grocery receipts. Payer photographs receipt → app parses → payer tags items to people → exact per-person totals, tax only on taxable items. User's flagship portfolio project. Source: brainstorm conversation + user decisions (payer tags all; no payments; iOS Safari; location-agnostic; LOW CONFIDENCE + Retry Reading; manual add/edit).
 
 ## Part A — v0 architecture (context for all slices; only Slice 1 is built now)
@@ -682,10 +682,11 @@ README also contains: project one-liner, Stack table (with versions from B7 step
   healthcheckPath = "/readyz"
   healthcheckTimeout = 60
   ```
-  Service setting "Config-as-code path" = `/api/railway.toml`. Env: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `ENVIRONMENT=production`, `CORS_ALLOWED_ORIGINS=<vercel production URL>`, `VERCEL_PREVIEW_PROJECT=receipt-splitter`, `VERCEL_TEAM_SLUG=<vercel-team-slug>`. If Railpack does not expand `$PORT` in `startCommand`, wrap it as `sh -c "uv run --frozen --no-dev uvicorn app.main:app --host 0.0.0.0 --port $PORT"`. `api/mise.toml` pins uv for Railpack's build: `[tools]` / `uv = "0.9.7"` (same version as CI and A1). `--frozen` makes `uv run` use `uv.lock` as-is without re-resolving at container start.
-  **CORS preview-regex limitation (security):** the regex also matches the production domain of any Vercel project anyone creates named `receipt-splitter-<x>-<team-slug>`. Acceptable in Slice 1 only because every endpoint is public and `allow_credentials=False`. **Slice 3 (auth) must, before shipping any authenticated endpoint, unset `VERCEL_PREVIEW_PROJECT`/`VERCEL_TEAM_SLUG` in production** and either enable Vercel Deployment Protection for previews with a separate preview API service, or accept that previews call no authenticated endpoints. Recorded in Out-of-scope follow-ups.
+  Service setting "Config-as-code path" = `/api/railway.toml`. Env: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `ENVIRONMENT=production`, `CORS_ALLOWED_ORIGINS=<vercel production URL>`, `VERCEL_PREVIEW_PROJECT=<vercel project name>`, `VERCEL_TEAM_SLUG=<vercel-team-slug>`. If Railpack does not expand `$PORT` in `startCommand`, wrap it as `sh -c "uv run --frozen --no-dev uvicorn app.main:app --host 0.0.0.0 --port $PORT"`. `api/mise.toml` pins uv for Railpack's build: `[tools]` / `uv = "0.9.7"` (same version as CI and A1). `--frozen` makes `uv run` use `uv.lock` as-is without re-resolving at container start.
+  **CORS preview-regex limitation (security):** the regex also matches the production domain of any Vercel project anyone creates named `<project>-<x>-<team-slug>` (e.g. `receiptsplit-beta-<x>-kylechu`). Acceptable in Slice 1 only because every endpoint is public and `allow_credentials=False`. **Slice 3 (auth) must, before shipping any authenticated endpoint, unset `VERCEL_PREVIEW_PROJECT`/`VERCEL_TEAM_SLUG` in production** and either enable Vercel Deployment Protection for previews with a separate preview API service, or accept that previews call no authenticated endpoints. Recorded in Out-of-scope follow-ups.
 - **Vercel (web):** root directory `web/`, Node.js version 24.x, env `NEXT_PUBLIC_API_BASE_URL=<railway api public URL>` for Production and Preview.
 - **Checks:** Railway `/readyz` → 200; Vercel production URL shows `API: ok`; a Vercel preview URL also shows `API: ok` (CORS regex).
+- **As deployed (2026-09-15):** ReceiptSplit web at `https://receiptsplit-beta.vercel.app`; API at `https://receipt-splitter-production-d4ac.up.railway.app`; Railway Postgres 18.6; `CORS_ALLOWED_ORIGINS=https://receiptsplit-beta.vercel.app`, `VERCEL_PREVIEW_PROJECT=receiptsplit-beta` (the Vercel project name, which prefixes preview URLs), `VERCEL_TEAM_SLUG=kylechu`. Verified: production and preview pages show `API: ok`; preflights from unlisted origins are refused.
 
 ### Failure modes
 | Failure | What user/dev sees |
