@@ -5,6 +5,9 @@ with tax charged only on the items that were actually taxed.
 
 **Live:** https://receiptsplit-beta.vercel.app
 
+> **No sign-up, no saved people, no receipt history.** Scan a receipt, split it, leave — the only
+> thing kept between visits is how to read a given store's receipt format.
+
 > **Status:** Slice 1 of v0 — project skeleton, data model, and the allocation engine.
 > Receipt capture, parsing, and the tagging UI arrive in later slices
 > (see [the design doc](docs/design/v0-architecture-and-slice-1.md)).

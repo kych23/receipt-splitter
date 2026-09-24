@@ -1,8 +1,9 @@
 # DESIGN DOC — ReceiptSplit: v0 architecture + Slice 1 (scaffold, data model, allocator)
 
-**Revision:** 4 (addresses design-check rounds 1–4; round-4 fixes applied under user override at the 3-revision cap, not re-reviewed; see Revision log at end)
+**Revision:** 6 (**scope cut: no accounts, no saved people, no receipt history** — see A8, which supersedes the A4 data model and parts of Part B. Earlier: revision 5 added A7 store profiles; rounds 1–4 design check; see Revision logs at end)
 
 - **Project:** ReceiptSplit (repo `receipt-splitter`, `~/cs/personal/receipt-splitter`; live at `https://receiptsplit-beta.vercel.app`). Monorepo: `web/` (Next.js App Router, TypeScript) + `api/` (FastAPI, Python 3.13).
+- **Product shape (revision 6):** open the site, scan a receipt, type who's splitting it, tap items to people, read the totals, done. **No sign-up, no saved people, no receipt history.** The only thing the service remembers between visits is how to read a given store's receipts (A7).
 - **Why:** 4 roommates split shared grocery receipts. Payer photographs receipt → app parses → payer tags items to people → exact per-person totals, tax only on taxable items. User's flagship portfolio project. Source: brainstorm conversation + user decisions (payer tags all; no payments; iOS Safari; location-agnostic; LOW CONFIDENCE + Retry Reading; manual add/edit).
 
 ## Part A — v0 architecture (context for all slices; only Slice 1 is built now)
@@ -63,6 +64,10 @@ receipt-splitter/
 Import setup: `api/pyproject.toml` has **no** `[build-system]` (uv virtual project). `[tool.pytest.ini_options]`: `pythonpath = [".", "tests/domain"]`, `testpaths = ["tests"]`, `markers = ["db: requires Postgres"]` (see B8). `"."` makes `import app` work; `"tests/domain"` lets tests `from strategies import allocation_inputs`. `tests/` and its subfolders have **no** `__init__.py`; test module basenames are unique across folders.
 
 ### A4. Data model (all tables created by Slice 1 migration `0001_initial`)
+
+> **Superseded by A8 (revision 6).** This section records the schema Slice 1 actually shipped.
+> Migration `0002` drops `users`, `households`, `participants`, `assignments` and
+> `allocation_snapshots`, and reshapes `receipts`. Read A8 for the current model.
 
 **Conventions**
 - `app/db/base.py`: `class Base(DeclarativeBase): metadata = MetaData(naming_convention=NAMING_CONVENTION)` with
@@ -174,11 +179,145 @@ class ParsedReceipt(BaseModel):
 | Slice | Content | Gate |
 |---|---|---|
 | **1 (this doc)** | scaffold, CI, data model, receipt schema, allocator, health endpoints, deployed walking skeleton | this design check |
-| 2 | storage upload, `ReceiptParser` protocol + providers, C1/C2/C3 checks, auto retry, suspect-line detectors, Retry Reading (cap 5), parse API, invariant I1 | own `/eg-new-feature`, after Week-1 benchmark |
-| 3 | auth, households/participants UI, edit screen (correction events, live balance bar, LOW CONFIDENCE marker), tagging, finalize, summary, demo mode, rate limiting, invariants I2–I3 | own `/eg-new-feature` |
+| 2 | migration `0002` (A8), ephemeral receipt storage + purge, image upload, `ReceiptParser` protocol + providers, C1/C2/C3 checks, auto retry, suspect-line detectors, Retry Reading (cap 5), parse API, **store profiles + rule inference (A7)**, per-IP rate limiting | own `/eg-new-feature`; needs a handful of real receipts per chain, not a public dataset |
+| 3 | **no auth**: people are typed in per receipt; **store picker + rule review/edit screen (A7)**, edit screen (correction events, live balance bar, LOW CONFIDENCE marker), tagging, summary, demo receipt | own `/eg-new-feature` |
 | 4 | auto-capture (corner/coverage/lighting/motion/focus checks, Capture + Upload always visible) | own `/eg-new-feature`, after iOS camera spike (`spikes/`) |
 
 Migration policy for later slices: Railway runs migrations in a pre-deploy step while the previous container still serves traffic, so every migration after `0001` must be backward-compatible with the previous app version (expand → deploy → contract).
+
+### A7. Store profiles and receipt rules (added revision 5)
+
+**Problem.** Receipt formats are store-specific, and the per-line tax codes are the sharpest case.
+Evidence from the owner's own receipts (Ithaca, NY, Sept 2026): Target prints a legend
+(`T = NY TAX 8.000`) and uses `T` / `NF`; Wegmans prints **no** legend and uses `T` / `F` / `B`
+(bottle deposit, $0.05 per beverage). A single global code table would be wrong at the next chain,
+so meaning is **derived per store and stored**, never hardcoded.
+
+**Model.** A *store profile* is a named set of rules for one store company (Wegmans, Target, …).
+The user picks the store from a dropdown when uploading; the profile then drives both the parser
+prompt and the deterministic post-processing. A receipt from an unseen store starts the
+**first-scan flow**: parse, infer rules from the receipt itself, show the inferred rules, let the
+user correct them, then save the profile.
+
+**Rule resolution ladder** (each rung falls through to the next; all rungs are ordinary code, not
+model judgement — see "Division of labour" below):
+1. **Legend on the receipt.** If the receipt prints a code legend, parse it and use it for that
+   receipt, including any rate it states.
+2. **Arithmetic solver.** Treat "which codes are taxable" as unknown and solve it against the
+   printed tax: group item amounts by code, enumerate the subsets of codes (k distinct codes → 2^k
+   candidates, capped at k ≤ 8), and keep candidates where `taxable_subtotal × rate` equals the
+   printed tax within ±1¢. Rate comes from the legend when known, otherwise it is solved
+   (`tax / taxable_subtotal`) and must be plausible (0 < rate ≤ 10%). Exactly one surviving
+   candidate → the map is derived. Zero or several survivors → ambiguous.
+3. **Stored profile.** A confirmed profile supplies the map, but a receipt that contradicts it does
+   not silently win: the receipt is marked LOW CONFIDENCE and the user is offered "update store
+   rules".
+4. **Unknown.** Unresolved codes leave `taxable: null`, which already triggers
+   `UNKNOWN_TAXABILITY` / `TAX_FALLBACK_PROPORTIONAL` in the allocator (B5 step 6). Never guess
+   taxability from the product name.
+
+**Division of labour.** The vision model transcribes only what is printed (raw line text, amount,
+literal code characters, legend lines). Meaning — which code is taxable, what is a deposit — is
+decided by rungs 1–4 in deterministic, unit-tested code. Rationale: models read `NF` reliably and
+do not know New York's grocery rules, and a deterministic layer can be tested and re-run over
+stored receipts.
+
+**Data model (new tables, Slice 2 migration `0002`; Slice 1's `0001` is unchanged).**
+- **store_profiles**: `id`, `name` (1..80, e.g. "Wegmans"),
+  `slug` (`^[a-z0-9-]+$`, globally unique among non-archived), `status`
+  (`draft` | `confirmed`), `rules` JSONB (non-tax rules: weighted-item pattern, discount placement,
+  deposit style, where the code sits on the line), `rules_version` INT, `receipts_seen` INT,
+  `created_at`, `updated_at`, `archived_at` NULL.
+- **store_tax_codes**: `id`, `store_profile_id` (FK CASCADE), `code` (1..8 chars, as printed),
+  `meaning` (`taxable` | `exempt` | `deposit` | `unknown`), `source` (`legend` | `solver` | `user`),
+  `confirmed_count` INT, `last_seen_at`, `created_at`; `UNIQUE (store_profile_id, code)`.
+- **receipts**: `store_profile_id` UUID NULL (FK store_profiles, `ON DELETE SET NULL`), set from the
+  dropdown. See A8 for the rest of the reshaped table.
+- Profiles are a **single global catalogue** (revision 6: there are no households). Anyone's scan
+  can improve them, so the guard against a bad edit is promotion, not ownership: a user's edit
+  applies to **their receipt immediately** and is written to the catalogue only when it agrees with
+  the legend, or with the solver, or with 2 other receipts that reached the same meaning. Anything
+  else stays a per-receipt override. Catalogue rows keep `source` and `confirmed_count` so a wrong
+  entry can be traced and demoted.
+
+**Trust rules.**
+- `user` beats `legend` beats `solver`. A user edit sets `meaning` and `source='user'` and is never
+  overwritten automatically.
+- A `solver` code becomes trusted after it is confirmed on 3 receipts of that chain
+  (`confirmed_count >= 3`); until then it is a hint that must still pass the C3 tax check.
+- Every finalized receipt updates `confirmed_count` and `last_seen_at`, so the profile improves with
+  use. Metric worth reporting: share of codes resolved without user input, over N receipts.
+
+**First-scan flow (unseen store).**
+1. Upload with **New store…** selected; user types the store name.
+2. Parse, then run rungs 1–2 over the result.
+3. **Review screen** lists every code found with its inferred meaning, its source, the evidence
+   (e.g. "legend: `T = NY TAX 8.000`", or "solver: T-items $20.00 × 8.00% = $1.60 = printed tax"),
+   and an editable meaning. Ambiguous codes are listed as `unknown` and must be set by the user
+   before finalize.
+4. Save creates the profile (`status='confirmed'`, `source='user'` for edited rows).
+
+**Known-store flow.** Dropdown selection loads the profile; codes resolve from it; C3 still runs and
+disagreement downgrades the receipt to LOW CONFIDENCE rather than trusting the profile blindly.
+
+**Deliberately out of scope for v0**: automatic chain detection from the receipt header (the
+dropdown replaces it), per-branch profiles (one profile per company is enough: formats are uniform
+within a chain), sharing profiles across households, and learning non-tax rules automatically
+(`rules` JSONB starts empty and is filled by hand as patterns are confirmed).
+
+### A8. No accounts, no history (revision 6) — supersedes A4
+
+**Decision.** The product is a tool, not an account. A visitor opens the site, scans one receipt,
+splits it, and leaves. The service stores **no users, no saved people, and no receipt history**.
+What it does keep is store knowledge (A7), because "how does Wegmans print its tax codes" is not
+personal data and is what makes the next scan better for everyone.
+
+**Consequences**
+- **People are per receipt.** Names are typed in for this split only, held in the browser and
+  attached to the receipt's working state. There is no participant record, no roster to pick from,
+  and nothing to delete later. The allocator is unchanged: the client generates a UUID per person
+  for the duration of the split.
+- **Receipts are ephemeral.** A receipt row exists only while the user is working on it, so that a
+  page refresh does not lose a parse and so the Retry Reading cap can be enforced server-side. It
+  carries `expires_at` (default `now() + 24h`) and is purged automatically.
+- **Images are deleted as soon as parsing finishes**, and in any case when the receipt is purged.
+- **Nothing to log in to**, so there is no auth slice, no session cookie, and no per-user data to
+  leak. The trade-off: the parse endpoint is public and costs money per call, so per-IP rate
+  limiting and an upload size cap move from "nice to have" into Slice 2.
+
+**Migration `0002` (Slice 2)**
+- **Drop**: `users`, `households`, `participants`, `assignments`, `allocation_snapshots`. They hold
+  no data, so the drop is safe. This also removes the deferred-FK machinery that existed only to
+  make household deletes cascade.
+- **Reshape `receipts`**: drop `household_id` and `payer_participant_id`; add
+  `store_profile_id` UUID NULL (FK `store_profiles`, `ON DELETE SET NULL`),
+  `participants` JSONB NOT NULL DEFAULT `'[]'` (`[{key, display_name, sort_order}]`, names live and
+  die with the receipt), `expires_at` TIMESTAMPTZ NOT NULL DEFAULT `now() + interval '24 hours'`,
+  and index `ix_receipts_expires_at`. Keep `status`, `image_object_key`, image dimensions,
+  `manual_retry_count`, `active_parse_attempt_id`, timestamps.
+- **Keep**: `parse_attempts` (unchanged, still the audit trail for retries within a session) and
+  `corrections` (attempt-scoped edits, so a refresh keeps them). Both cascade away with the receipt.
+- **Replace assignments**: item → person tagging moves into `receipts.assignments` JSONB
+  (`{line_id: [participant_key, ...]}`). It only has meaning while the receipt exists, so a table
+  with foreign keys buys nothing.
+- **No allocation snapshots.** Totals are computed on demand by the allocator and shown; nothing is
+  stored after the user leaves.
+
+**Purge**
+- Every parse request first deletes expired receipts (cheap, indexed), and a scheduled Railway job
+  runs the same sweep hourly so an idle service still cleans up. Deleting a receipt row also deletes
+  its stored image.
+- The purge is a tested unit: given a receipt past `expires_at`, the row, its parse attempts, its
+  corrections and its image are gone.
+
+**What this buys**
+- A visitor can try the live demo in seconds, with no sign-up wall — which is exactly what a
+  recruiter following a portfolio link will do.
+- The privacy story is simple and true: "your receipt is deleted, and we never knew who you are."
+
+**Explicit non-goals for v0**: saved households, a people roster, receipt history, cross-device
+continuation, and exports. If accounts ever return, they are additive: a user id on the receipt and
+a longer `expires_at`.
 
 ---
 
@@ -721,7 +860,7 @@ No auth in Slice 1. `/healthz`, `/readyz` public; fixed enum bodies expose no in
 7. `cd api && uv run alembic downgrade base && uv run alembic upgrade head` succeeds against the local dev DB.
 
 ### Out-of-scope follow-ups
-Slices 2–4 (A6); iOS Safari camera resolution spike (`spikes/camera-res/`); Week-1 20-receipt LLM benchmark; auth provider choice; object storage provider; allocation endpoint + 422 mapping; tax-base handling of store coupons; per-item multiple tax rates; voided/returned items and negative tax; invariants I1–I3 enforcement + tests; async DB driver if Slice 2 needs it; fairer tie-breaking in `allocate_proportionally` (rotation) if penny bias proves noticeable; **Slice 3 blocker:** disable the Vercel preview CORS allowance (`VERCEL_PREVIEW_PROJECT`/`VERCEL_TEAM_SLUG`) or replace it before any authenticated endpoint ships (B10).
+Slices 2–4 (A6); iOS Safari camera resolution spike (`spikes/camera-res/`); Week-1 20-receipt LLM benchmark; auth provider choice; object storage provider; allocation endpoint + 422 mapping; tax-base handling of store coupons; per-item multiple tax rates; voided/returned items and negative tax; invariants I1–I3 enforcement + tests; async DB driver if Slice 2 needs it; fairer tie-breaking in `allocate_proportionally` (rotation) if penny bias proves noticeable; automatic chain detection from the receipt header (A7); accounts/history if ever wanted (A8); **Slice 3 blocker:** disable the Vercel preview CORS allowance (`VERCEL_PREVIEW_PROJECT`/`VERCEL_TEAM_SLUG`) or replace it before any authenticated endpoint ships (B10).
 
 ---
 
@@ -794,3 +933,13 @@ Round 4: readiness `implementation ready`; critic `design needs revision` (5 gap
 | Source | Change | Resolution |
 |---|---|---|
 | Railway deploy | Railway's Postgres template runs 18.6, not 16 | Standardized on PostgreSQL 18 everywhere (local `postgresql@18`, CI `postgres:18`). Catalog test now excludes `contype = 'n'`: Postgres 18 records NOT NULL as auto-named constraints; nullability stays covered by `compare_metadata`. |
+
+## Revision log (revision 5 — store profiles)
+| Source | Change | Resolution |
+|---|---|---|
+| Owner's receipts (2 Wegmans, 2 Target) | Receipt formats and tax codes differ per store; Target prints a legend, Wegmans does not | New A7: per-store profiles in the database, a store dropdown at upload, and a rule-resolution ladder (legend → arithmetic solver → stored profile → unknown). First scan of an unseen store infers rules and shows them for user correction. Slice 2 gains the profiles + inference; Slice 3 gains the picker and review screen. Slice 1 as built is unchanged; new tables arrive in migration `0002`. |
+
+## Revision log (revision 6 — no accounts, no history)
+| Source | Change | Resolution |
+|---|---|---|
+| Owner decision | Product should be "scan a receipt, split it, leave" — no saved people, no receipt history | New A8 supersedes A4: migration `0002` drops `users`, `households`, `participants`, `assignments`, `allocation_snapshots`; `receipts` becomes ephemeral (`expires_at`, purge sweep, image deleted after parse) and carries `participants` + `assignments` as JSONB; no auth slice. A7 store profiles become a single global catalogue with promotion rules instead of household ownership. Slice 2 gains the migration, purge and per-IP rate limiting; Slice 3 loses auth and the roster UI. |
