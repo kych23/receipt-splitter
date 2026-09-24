@@ -1,13 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { jsonResponse } from "@/test/fixtures";
 import { ApiStatus } from "./ApiStatus";
-
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 describe("ApiStatus", () => {
   beforeEach(() => {

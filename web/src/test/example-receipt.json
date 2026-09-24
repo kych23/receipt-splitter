@@ -1,0 +1,193 @@
+{
+  "content": {
+    "merchant_name": "Target",
+    "chain": null,
+    "purchased_on": null,
+    "currency": "USD",
+    "lines": [
+      {
+        "line_id": "ex-1",
+        "kind": "item",
+        "raw_text": "",
+        "name": "Cheetos",
+        "quantity": null,
+        "unit_price_cents": null,
+        "total_cents": 489,
+        "taxable": false,
+        "tax_code": "NF",
+        "discount_target_line_id": null
+      },
+      {
+        "line_id": "ex-2",
+        "kind": "item",
+        "raw_text": "",
+        "name": "e.l.f.",
+        "quantity": null,
+        "unit_price_cents": null,
+        "total_cents": 1112,
+        "taxable": true,
+        "tax_code": "T",
+        "discount_target_line_id": null
+      },
+      {
+        "line_id": "ex-3",
+        "kind": "item",
+        "raw_text": "",
+        "name": "Kitsch",
+        "quantity": null,
+        "unit_price_cents": null,
+        "total_cents": 999,
+        "taxable": true,
+        "tax_code": "T",
+        "discount_target_line_id": null
+      },
+      {
+        "line_id": "ex-4",
+        "kind": "item",
+        "raw_text": "",
+        "name": "e.l.f.",
+        "quantity": null,
+        "unit_price_cents": null,
+        "total_cents": 463,
+        "taxable": true,
+        "tax_code": "T",
+        "discount_target_line_id": null
+      },
+      {
+        "line_id": "ex-5",
+        "kind": "item",
+        "raw_text": "",
+        "name": "Slime Mart",
+        "quantity": null,
+        "unit_price_cents": null,
+        "total_cents": 500,
+        "taxable": true,
+        "tax_code": "T",
+        "discount_target_line_id": null
+      }
+    ],
+    "subtotal_cents": 3563,
+    "tax_lines": [
+      {
+        "label": "NY TAX 8%",
+        "amount_cents": 246
+      }
+    ],
+    "total_cents": 3809,
+    "printed_item_count": null
+  },
+  "participants": [
+    {
+      "key": "00000000-0000-4000-8000-000000000001",
+      "display_name": "Alex"
+    },
+    {
+      "key": "00000000-0000-4000-8000-000000000002",
+      "display_name": "Sam"
+    },
+    {
+      "key": "00000000-0000-4000-8000-000000000003",
+      "display_name": "Jordan"
+    }
+  ],
+  "assignments": {
+    "ex-1": [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002"
+    ],
+    "ex-2": ["00000000-0000-4000-8000-000000000003"],
+    "ex-3": ["00000000-0000-4000-8000-000000000002"],
+    "ex-4": ["00000000-0000-4000-8000-000000000003"],
+    "ex-5": [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+      "00000000-0000-4000-8000-000000000003"
+    ]
+  },
+  "id": "11111111-1111-4111-8111-111111111111",
+  "is_example": true,
+  "updated_at": "2026-09-24T12:00:00Z",
+  "expires_at": "2026-09-25T12:00:00Z",
+  "allocation": {
+    "allocator_version": "1",
+    "participants": [
+      {
+        "participant_id": "00000000-0000-4000-8000-000000000001",
+        "line_shares": [
+          {
+            "line_id": "ex-1",
+            "share_cents": 245,
+            "split_count": 2
+          },
+          {
+            "line_id": "ex-5",
+            "share_cents": 167,
+            "split_count": 3
+          }
+        ],
+        "items_cents": 412,
+        "receipt_discounts_cents": 0,
+        "fees_cents": 0,
+        "tax_base_cents": 167,
+        "tax_cents": 14,
+        "total_cents": 426
+      },
+      {
+        "participant_id": "00000000-0000-4000-8000-000000000002",
+        "line_shares": [
+          {
+            "line_id": "ex-1",
+            "share_cents": 244,
+            "split_count": 2
+          },
+          {
+            "line_id": "ex-3",
+            "share_cents": 999,
+            "split_count": 1
+          },
+          {
+            "line_id": "ex-5",
+            "share_cents": 167,
+            "split_count": 3
+          }
+        ],
+        "items_cents": 1410,
+        "receipt_discounts_cents": 0,
+        "fees_cents": 0,
+        "tax_base_cents": 1166,
+        "tax_cents": 93,
+        "total_cents": 1503
+      },
+      {
+        "participant_id": "00000000-0000-4000-8000-000000000003",
+        "line_shares": [
+          {
+            "line_id": "ex-2",
+            "share_cents": 1112,
+            "split_count": 1
+          },
+          {
+            "line_id": "ex-4",
+            "share_cents": 463,
+            "split_count": 1
+          },
+          {
+            "line_id": "ex-5",
+            "share_cents": 166,
+            "split_count": 3
+          }
+        ],
+        "items_cents": 1741,
+        "receipt_discounts_cents": 0,
+        "fees_cents": 0,
+        "tax_base_cents": 1741,
+        "tax_cents": 139,
+        "total_cents": 1880
+      }
+    ],
+    "computed_total_cents": 3809,
+    "printed_total_cents": 3809,
+    "warnings": []
+  },
+  "allocation_problem": null
+}

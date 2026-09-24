@@ -1,6 +1,133 @@
 {
   "components": {
     "schemas": {
+      "AllocationProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "no_participants",
+              "too_many_participants",
+              "duplicate_participant",
+              "unknown_line",
+              "assigned_non_assignable",
+              "empty_assignment",
+              "unknown_participant",
+              "unassigned_line",
+              "negative_line_net",
+              "no_assignable_lines",
+              "discount_exceeds_items"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "AllocationProblem",
+        "type": "object"
+      },
+      "AllocationResult": {
+        "properties": {
+          "allocator_version": {
+            "title": "Allocator Version",
+            "type": "string"
+          },
+          "computed_total_cents": {
+            "title": "Computed Total Cents",
+            "type": "integer"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/ParticipantAllocation"
+            },
+            "title": "Participants",
+            "type": "array"
+          },
+          "printed_total_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed Total Cents"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AllocationWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "allocator_version",
+          "participants",
+          "computed_total_cents",
+          "printed_total_cents",
+          "warnings"
+        ],
+        "title": "AllocationResult",
+        "type": "object"
+      },
+      "AllocationWarning": {
+        "enum": [
+          "tax_fallback_proportional",
+          "tax_without_taxable_lines",
+          "unknown_taxability",
+          "zero_base_equal_split"
+        ],
+        "title": "AllocationWarning",
+        "type": "string"
+      },
+      "CreateReceiptRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "example": {
+            "default": false,
+            "title": "Example",
+            "type": "boolean"
+          }
+        },
+        "title": "CreateReceiptRequest",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "status": {
@@ -13,6 +140,210 @@
           "status"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "LineShare": {
+        "properties": {
+          "line_id": {
+            "title": "Line Id",
+            "type": "string"
+          },
+          "share_cents": {
+            "title": "Share Cents",
+            "type": "integer"
+          },
+          "split_count": {
+            "title": "Split Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line_id",
+          "share_cents",
+          "split_count"
+        ],
+        "title": "LineShare",
+        "type": "object"
+      },
+      "ParsedReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "chain": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chain"
+          },
+          "currency": {
+            "const": "USD",
+            "default": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLine"
+            },
+            "maxItems": 300,
+            "title": "Lines",
+            "type": "array"
+          },
+          "merchant_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Name"
+          },
+          "printed_item_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printed Item Count"
+          },
+          "purchased_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchased On"
+          },
+          "subtotal_cents": {
+            "anyOf": [
+              {
+                "maximum": 10000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtotal Cents"
+          },
+          "tax_lines": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TaxLine"
+            },
+            "maxItems": 5,
+            "title": "Tax Lines",
+            "type": "array"
+          },
+          "total_cents": {
+            "anyOf": [
+              {
+                "maximum": 10000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cents"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "ParsedReceipt",
+        "type": "object"
+      },
+      "Participant": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "key": {
+            "format": "uuid",
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "display_name"
+        ],
+        "title": "Participant",
+        "type": "object"
+      },
+      "ParticipantAllocation": {
+        "properties": {
+          "fees_cents": {
+            "title": "Fees Cents",
+            "type": "integer"
+          },
+          "items_cents": {
+            "title": "Items Cents",
+            "type": "integer"
+          },
+          "line_shares": {
+            "items": {
+              "$ref": "#/components/schemas/LineShare"
+            },
+            "title": "Line Shares",
+            "type": "array"
+          },
+          "participant_id": {
+            "format": "uuid",
+            "title": "Participant Id",
+            "type": "string"
+          },
+          "receipt_discounts_cents": {
+            "title": "Receipt Discounts Cents",
+            "type": "integer"
+          },
+          "tax_base_cents": {
+            "title": "Tax Base Cents",
+            "type": "integer"
+          },
+          "tax_cents": {
+            "title": "Tax Cents",
+            "type": "integer"
+          },
+          "total_cents": {
+            "title": "Total Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "participant_id",
+          "line_shares",
+          "items_cents",
+          "receipt_discounts_cents",
+          "fees_cents",
+          "tax_base_cents",
+          "tax_cents",
+          "total_cents"
+        ],
+        "title": "ParticipantAllocation",
         "type": "object"
       },
       "ReadyResponse": {
@@ -39,6 +370,291 @@
           "database"
         ],
         "title": "ReadyResponse",
+        "type": "object"
+      },
+      "ReceiptLine": {
+        "additionalProperties": false,
+        "properties": {
+          "discount_target_line_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount Target Line Id"
+          },
+          "kind": {
+            "enum": [
+              "item",
+              "discount",
+              "fee",
+              "deposit"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "raw_text": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Raw Text",
+            "type": "string"
+          },
+          "tax_code": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Code"
+          },
+          "taxable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxable"
+          },
+          "total_cents": {
+            "maximum": 10000000.0,
+            "minimum": -10000000.0,
+            "title": "Total Cents",
+            "type": "integer"
+          },
+          "unit_price_cents": {
+            "anyOf": [
+              {
+                "maximum": 10000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price Cents"
+          }
+        },
+        "required": [
+          "line_id",
+          "kind",
+          "name",
+          "total_cents"
+        ],
+        "title": "ReceiptLine",
+        "type": "object"
+      },
+      "ReceiptResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllocationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allocation_problem": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllocationProblem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Assignments",
+            "type": "object"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ParsedReceipt"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_example": {
+            "title": "Is Example",
+            "type": "boolean"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/Participant"
+            },
+            "maxItems": 20,
+            "title": "Participants",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "participants",
+          "assignments",
+          "id",
+          "is_example",
+          "updated_at",
+          "expires_at",
+          "allocation",
+          "allocation_problem"
+        ],
+        "title": "ReceiptResponse",
+        "type": "object"
+      },
+      "SaveReceiptRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Assignments",
+            "type": "object"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ParsedReceipt"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/Participant"
+            },
+            "maxItems": 20,
+            "title": "Participants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "content",
+          "participants",
+          "assignments"
+        ],
+        "title": "SaveReceiptRequest",
+        "type": "object"
+      },
+      "TaxLine": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_cents": {
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Amount Cents",
+            "type": "integer"
+          },
+          "label": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "amount_cents"
+        ],
+        "title": "TaxLine",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       }
     }
@@ -93,6 +709,335 @@
           }
         },
         "summary": "Readyz"
+      }
+    },
+    "/v1/receipts": {
+      "post": {
+        "operationId": "create_v1_receipts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceiptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests (see Retry-After)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Live-receipt cap reached"
+          }
+        },
+        "summary": "Create",
+        "tags": [
+          "receipts"
+        ]
+      }
+    },
+    "/v1/receipts/{receipt_id}": {
+      "delete": {
+        "operationId": "remove_v1_receipts__receipt_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Receipt not found or expired"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests (see Retry-After)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Remove",
+        "tags": [
+          "receipts"
+        ]
+      },
+      "get": {
+        "operationId": "read_v1_receipts__receipt_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Receipt not found or expired"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests (see Retry-After)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Read",
+        "tags": [
+          "receipts"
+        ]
+      },
+      "put": {
+        "operationId": "save_v1_receipts__receipt_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveReceiptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Receipt not found or expired"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests (see Retry-After)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Save",
+        "tags": [
+          "receipts"
+        ]
       }
     }
   }

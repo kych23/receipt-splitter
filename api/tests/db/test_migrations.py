@@ -10,32 +10,18 @@ from app.db.base import Base
 
 pytestmark = pytest.mark.db
 
-DEFERRED_FKS = {
-    "fk_receipts_payer_participant_id_participants",
-    "fk_assignments_participant_id_participants",
-}
+# No deferred FKs remain after 0002 (they existed only for household cascades).
+DEFERRED_FKS: set[str] = set()
 
-# Every constraint in the public schema, by name → pg_constraint.contype (design doc A4.1).
+# Every constraint in the public schema at head, by name -> pg_constraint.contype.
+# (Slice 3 design doc, "Migration & deploy": 0002 drops the account tables.)
 EXPECTED_CONSTRAINTS = {
-    **{
-        f"pk_{table}": "p"
-        for table in (
-            "users",
-            "households",
-            "participants",
-            "receipts",
-            "parse_attempts",
-            "corrections",
-            "assignments",
-            "allocation_snapshots",
-        )
-    },
-    "uq_users_email": "u",
+    "pk_receipts": "p",
+    "pk_parse_attempts": "p",
+    "pk_corrections": "p",
     "uq_parse_attempts_receipt_id_attempt_number": "u",
     "uq_parse_attempts_id_receipt_id": "u",
     "uq_corrections_parse_attempt_id_sequence": "u",
-    "ck_households_name_length": "c",
-    "ck_participants_display_name_length": "c",
     "ck_receipts_status_valid": "c",
     "ck_receipts_manual_retry_count_range": "c",
     "ck_parse_attempts_attempt_number_positive": "c",
@@ -43,19 +29,13 @@ EXPECTED_CONSTRAINTS = {
     "ck_parse_attempts_outcome_valid": "c",
     "ck_corrections_sequence_positive": "c",
     "ck_corrections_kind_valid": "c",
-    "fk_households_owner_user_id_users": "f",
-    "fk_participants_household_id_households": "f",
-    "fk_receipts_household_id_households": "f",
-    "fk_receipts_payer_participant_id_participants": "f",
     "fk_receipts_active_parse_attempt_id_parse_attempts": "f",
     "fk_parse_attempts_receipt_id_receipts": "f",
     "fk_corrections_receipt_id_receipts": "f",
     "fk_corrections_attempt_receipt": "f",
-    "fk_assignments_parse_attempt_id_parse_attempts": "f",
-    "fk_assignments_participant_id_participants": "f",
-    "fk_allocation_snapshots_receipt_id_receipts": "f",
-    "fk_allocation_snapshots_attempt_receipt": "f",
 }
+
+DROPPED_TABLES = ("users", "households", "participants", "assignments", "allocation_snapshots")
 
 
 def test_round_trip(alembic_config: Config, migrated_engine: Engine) -> None:
@@ -102,7 +82,75 @@ def test_catalog_names_and_predicates(migrated_engine: Engine) -> None:
             assert row.condeferrable is expected_deferred, row.conname
             assert row.condeferred is expected_deferred, row.conname
 
-    partial = indexes["uq_participants_active_display_name"]
-    assert "UNIQUE" in partial
-    assert partial.endswith("WHERE (archived_at IS NULL)")
-    assert "ix_allocation_snapshots_receipt_id_created_at" in indexes
+    assert "ix_receipts_expires_at" in indexes
+    assert "uq_participants_active_display_name" not in indexes
+
+
+def _public_tables(engine: Engine) -> set[str]:
+    with engine.connect() as connection:
+        return set(
+            connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            ).scalars()
+        )
+
+
+def test_upgrade_from_0001_with_data(alembic_config: Config, migrated_engine: Engine) -> None:
+    """0002 must upgrade a 0001 database that has rows, and downgrade back cleanly."""
+    try:
+        command.downgrade(alembic_config, "base")
+        command.upgrade(alembic_config, "0001")
+        with migrated_engine.begin() as connection:
+            user_id = connection.execute(
+                text("INSERT INTO users (email) VALUES ('a@test.local') RETURNING id")
+            ).scalar_one()
+            household_id = connection.execute(
+                text("INSERT INTO households (owner_user_id, name) VALUES (:u, 'H') RETURNING id"),
+                {"u": user_id},
+            ).scalar_one()
+            participant_id = connection.execute(
+                text(
+                    "INSERT INTO participants (household_id, display_name, sort_order) "
+                    "VALUES (:h, 'P', 0) RETURNING id"
+                ),
+                {"h": household_id},
+            ).scalar_one()
+            receipt_id = connection.execute(
+                text(
+                    "INSERT INTO receipts (household_id, payer_participant_id, status) "
+                    "VALUES (:h, :p, 'needs_review') RETURNING id"
+                ),
+                {"h": household_id, "p": participant_id},
+            ).scalar_one()
+            attempt_id = connection.execute(
+                text(
+                    "INSERT INTO parse_attempts (receipt_id, attempt_number, trigger, provider, "
+                    "model, prompt_version, outcome) "
+                    "VALUES (:r, 1, 'initial', 't', 't', 'v0', 'ok') RETURNING id"
+                ),
+                {"r": receipt_id},
+            ).scalar_one()
+            connection.execute(
+                text(
+                    "INSERT INTO assignments (parse_attempt_id, line_id, participant_id) "
+                    "VALUES (:a, 'L1', :p)"
+                ),
+                {"a": attempt_id, "p": participant_id},
+            )
+
+        command.upgrade(alembic_config, "head")
+        tables = _public_tables(migrated_engine)
+        assert not (set(DROPPED_TABLES) & tables)
+        with migrated_engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM receipts")).scalar_one() == 0
+
+        command.downgrade(alembic_config, "0001")
+        tables = _public_tables(migrated_engine)
+        assert set(DROPPED_TABLES) <= tables
+        with migrated_engine.connect() as connection:
+            for table in (*DROPPED_TABLES, "receipts"):
+                count = connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+                assert count == 0, table
+    finally:
+        # Later tests expect head.
+        command.upgrade(alembic_config, "head")

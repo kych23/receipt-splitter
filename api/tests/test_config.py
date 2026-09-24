@@ -14,6 +14,8 @@ _SETTINGS_ENV_VARS = (
     "CORS_ALLOWED_ORIGINS",
     "VERCEL_PREVIEW_PROJECT",
     "VERCEL_TEAM_SLUG",
+    "RATE_LIMIT_TRUSTED_PROXY_HOPS",
+    "RATE_LIMIT_LOG_CLIENT_IP",
 )
 
 
@@ -187,3 +189,18 @@ def test_malformed_database_url_rejected_without_echoing_secrets(bad_url: str) -
     message = str(exc_info.value)
     assert "invalid DATABASE_URL" in message
     assert "s3cret" not in message
+
+
+def test_rate_limit_hops_default_to_socket_address() -> None:
+    assert make_settings().rate_limit_trusted_proxy_hops == 0
+
+
+def test_rate_limit_hops_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1")
+    assert make_settings().rate_limit_trusted_proxy_hops == 1
+
+
+@pytest.mark.parametrize("hops", [-1, 6])
+def test_rate_limit_hops_out_of_range_rejected(hops: int) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(rate_limit_trusted_proxy_hops=hops)

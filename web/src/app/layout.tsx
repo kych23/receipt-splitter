@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "receipt-splitter",
+  title: "ReceiptSplit",
   description: "Split shared grocery receipts exactly, tax included.",
 };
 

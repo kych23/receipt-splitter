@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # from a free-form regex (which can be written to match any origin).
     vercel_preview_project: Annotated[str, Field(pattern=_SLUG_PATTERN)] | None = None
     vercel_team_slug: Annotated[str, Field(pattern=_SLUG_PATTERN)] | None = None
+    # X-Forwarded-For entries appended by trusted proxies (Railway's edge = 1). 0 = use the socket.
+    rate_limit_trusted_proxy_hops: Annotated[int, Field(ge=0, le=5)] = 0
+    # Deploy-time verification only: log the resolved client key and raw X-Forwarded-For.
+    rate_limit_log_client_ip: bool = False
 
     @property
     def cors_allowed_origin_regex(self) -> str | None:

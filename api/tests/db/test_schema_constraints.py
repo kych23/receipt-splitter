@@ -1,28 +1,16 @@
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
-from conftest import Graph, make_graph
+from conftest import make_graph
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import (
-    AllocationSnapshot,
-    Assignment,
-    Correction,
-    Household,
-    ParseAttempt,
-    Participant,
-    Receipt,
-)
+from app.db.models import Correction, ParseAttempt, Receipt
+from app.domain.receipt import ParsedReceipt
 
 pytestmark = pytest.mark.db
-
-
-def _immediate(session: Session) -> None:
-    """Force deferred constraint checks now instead of at (never-reached) commit."""
-    session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
 
 
 def _count(session: Session, model: Any, *criteria: Any) -> int:
@@ -33,12 +21,36 @@ def _expect_integrity_error(session: Session, action: Any) -> None:
     with pytest.raises(IntegrityError), session.begin_nested():
         action()
         session.flush()
-        _immediate(session)
 
 
 def test_graph_inserts(db_session: Session) -> None:
     make_graph(db_session)
-    _immediate(db_session)
+
+
+def test_receipt_defaults(db_session: Session) -> None:
+    receipt = Receipt()
+    db_session.add(receipt)
+    db_session.flush()
+    db_session.refresh(receipt)
+    db_now: datetime = db_session.scalar(select(func.clock_timestamp()))
+
+    assert receipt.status == "draft"
+    assert receipt.is_example is False
+    assert receipt.participants == []
+    assert receipt.assignments == {}
+    assert ParsedReceipt.model_validate(receipt.content).lines == []
+    assert db_now + timedelta(hours=23, minutes=59) < receipt.expires_at
+    assert receipt.expires_at <= db_now + timedelta(hours=24)
+
+
+def test_draft_status_accepted_and_unknown_rejected(db_session: Session) -> None:
+    db_session.add(Receipt(status="draft"))
+    db_session.flush()
+
+    def action() -> None:
+        db_session.add(Receipt(status="bogus"))
+
+    _expect_integrity_error(db_session, action)
 
 
 def test_manual_retry_count_capped_at_five(db_session: Session) -> None:
@@ -70,18 +82,9 @@ def test_duplicate_attempt_number_rejected(db_session: Session) -> None:
     _expect_integrity_error(db_session, action)
 
 
-def test_duplicate_active_participant_name_rejected(db_session: Session) -> None:
-    g = make_graph(db_session)
-
-    def action() -> None:
-        db_session.add(Participant(household_id=g.household_id, display_name="P1", sort_order=5))
-
-    _expect_integrity_error(db_session, action)
-
-
 def test_correction_receipt_must_match_attempt_receipt(db_session: Session) -> None:
     g = make_graph(db_session)
-    other_receipt = Receipt(household_id=g.household_id, status="uploaded")
+    other_receipt = Receipt()
     db_session.add(other_receipt)
     db_session.flush()
 
@@ -99,54 +102,36 @@ def test_correction_receipt_must_match_attempt_receipt(db_session: Session) -> N
     _expect_integrity_error(db_session, action)
 
 
-def test_archived_name_can_be_reused(db_session: Session) -> None:
-    g = make_graph(db_session)
-    db_session.get_one(Participant, g.payer_id).archived_at = datetime.now(UTC)
-    db_session.flush()
-    db_session.add(Participant(household_id=g.household_id, display_name="P1", sort_order=2))
-    db_session.flush()
-
-
 def test_delete_parse_attempt_nulls_active_pointer(db_session: Session) -> None:
-    g: Graph = make_graph(db_session)
+    g = make_graph(db_session)
     assert db_session.get_one(Receipt, g.receipt_id).active_parse_attempt_id == g.attempt_id
-    for model in (Correction, Assignment, AllocationSnapshot):
-        assert _count(db_session, model, model.parse_attempt_id == g.attempt_id) == 1
+    assert _count(db_session, Correction, Correction.parse_attempt_id == g.attempt_id) == 1
 
     db_session.execute(delete(ParseAttempt).where(ParseAttempt.id == g.attempt_id))
-    _immediate(db_session)
     db_session.expire_all()
 
     assert db_session.get_one(Receipt, g.receipt_id).active_parse_attempt_id is None
-    for model in (Correction, Assignment, AllocationSnapshot):
-        assert _count(db_session, model, model.parse_attempt_id == g.attempt_id) == 0
+    assert _count(db_session, Correction, Correction.parse_attempt_id == g.attempt_id) == 0
 
 
-def _household_counts(session: Session, g: Graph) -> tuple[int, ...]:
-    return (
-        _count(session, Receipt, Receipt.household_id == g.household_id),
-        _count(session, ParseAttempt, ParseAttempt.id == g.attempt_id),
-        _count(session, Correction, Correction.receipt_id == g.receipt_id),
-        _count(session, Assignment, Assignment.parse_attempt_id == g.attempt_id),
-        _count(session, AllocationSnapshot, AllocationSnapshot.receipt_id == g.receipt_id),
-        _count(session, Participant, Participant.household_id == g.household_id),
+def test_delete_receipt_cascades(db_session: Session) -> None:
+    g = make_graph(db_session)
+    assert _count(db_session, ParseAttempt, ParseAttempt.receipt_id == g.receipt_id) == 1
+    assert _count(db_session, Correction, Correction.receipt_id == g.receipt_id) == 1
+
+    db_session.execute(delete(Receipt).where(Receipt.id == g.receipt_id))
+
+    assert _count(db_session, ParseAttempt, ParseAttempt.receipt_id == g.receipt_id) == 0
+    assert _count(db_session, Correction, Correction.receipt_id == g.receipt_id) == 0
+
+
+def test_expires_at_can_be_backdated(db_session: Session) -> None:
+    receipt = Receipt()
+    db_session.add(receipt)
+    db_session.flush()
+    db_session.execute(
+        text("UPDATE receipts SET expires_at = now() - interval '1 minute' WHERE id = :id"),
+        {"id": receipt.id},
     )
-
-
-def test_delete_household_cascades(db_session: Session) -> None:
-    g = make_graph(db_session)
-    assert _household_counts(db_session, g) == (1, 1, 1, 1, 1, 2)
-
-    db_session.execute(delete(Household).where(Household.id == g.household_id))
-    _immediate(db_session)
-
-    assert _household_counts(db_session, g) == (0, 0, 0, 0, 0, 0)
-
-
-def test_delete_referenced_participant_fails(db_session: Session) -> None:
-    g = make_graph(db_session)
-
-    def action() -> None:
-        db_session.execute(delete(Participant).where(Participant.id == g.member_id))
-
-    _expect_integrity_error(db_session, action)
+    db_session.refresh(receipt)
+    assert receipt.expires_at < db_session.scalar(select(func.clock_timestamp()))

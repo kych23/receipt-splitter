@@ -1,6 +1,6 @@
 # DESIGN DOC — ReceiptSplit: v0 architecture + Slice 1 (scaffold, data model, allocator)
 
-**Revision:** 6 (**scope cut: no accounts, no saved people, no receipt history** — see A8, which supersedes the A4 data model and parts of Part B. Earlier: revision 5 added A7 store profiles; rounds 1–4 design check; see Revision logs at end)
+**Revision:** 7 (**Slice 3 built before Slice 2**: manual-entry splitting flow, migration `0002`, receipt API — detailed in `docs/design/slice-3-manual-split.md`. Revision 6 cut accounts/history (A8); revision 5 added A7 store profiles; rounds 1–4 design check; see Revision logs at end)
 
 - **Project:** ReceiptSplit (repo `receipt-splitter`, `~/cs/personal/receipt-splitter`; live at `https://receiptsplit-beta.vercel.app`). Monorepo: `web/` (Next.js App Router, TypeScript) + `api/` (FastAPI, Python 3.13).
 - **Product shape (revision 6):** open the site, scan a receipt, type who's splitting it, tap items to people, read the totals, done. **No sign-up, no saved people, no receipt history.** The only thing the service remembers between visits is how to read a given store's receipts (A7).
@@ -21,7 +21,7 @@
 Sync SQLAlchemy rationale: FastAPI runs `def` routes in a threadpool, so sync DB calls don't block the event loop; Slice 2 revisits if concurrent LLM calls require async routes.
 
 ### A2. Source of truth for money logic
-`api/app/domain/` is authoritative for allocation, add-up checks, suspect-line detection, and correction folding. It is pure (no I/O, no framework imports besides pydantic). In Slice 3, web re-implements **only** the C1/C2 sum checks (C1: items+discounts+fees = subtotal; C2: subtotal + tax = total — defined in Slice 2) for the instant balance bar, verified against shared JSON fixtures run by both test suites. Allocation results always come from the API.
+`api/app/domain/` is authoritative for allocation, add-up checks, suspect-line detection, and correction folding. It is pure (no I/O, no framework imports besides pydantic). In Slice 2 (with the checks themselves), web re-implements **only** the C1/C2 sum checks (C1: items+discounts+fees = subtotal; C2: subtotal + tax = total) for the instant balance bar, verified against shared JSON fixtures run by both test suites. Allocation results always come from the API.
 
 ### A3. Module layout
 ```
@@ -132,8 +132,8 @@ All other FKs in this list are not deferrable. The catalog test asserts: the set
 
 **Invariants enforced by application code (not the DB), tested in the slice that first writes these rows**
 - I1: `receipts.active_parse_attempt_id`, when set, references an attempt whose `receipt_id` is that receipt. (A composite FK would need `ON DELETE SET NULL (column)`, which SQLAlchemy's FK `ondelete` validator does not accept.) Written/tested in Slice 2.
-- I2: `receipts.payer_participant_id` and every `assignments.participant_id` belong to the receipt's household. Written/tested in Slice 3.
-- I3: `assignments.line_id` exists in the effective receipt for that attempt. Slice 3.
+- I2: *(superseded, revision 7)* there is no participants table; `validate_state` (Slice 3) rejects tags that reference unknown people.
+- I3: *(superseded, revision 7)* tags live in `receipts.assignments`; `validate_state` (Slice 3) rejects tags on unknown or non-item lines.
 
 ### A5. `ParsedReceipt` schema (`app/domain/receipt.py`, pydantic v2)
 All models: `model_config = ConfigDict(extra="forbid", frozen=True)`. All cents/count integers are `StrictInt` (rejects `"123"`, `12.0`, `True`).
@@ -179,8 +179,8 @@ class ParsedReceipt(BaseModel):
 | Slice | Content | Gate |
 |---|---|---|
 | **1 (this doc)** | scaffold, CI, data model, receipt schema, allocator, health endpoints, deployed walking skeleton | this design check |
-| 2 | migration `0002` (A8), ephemeral receipt storage + purge, image upload, `ReceiptParser` protocol + providers, C1/C2/C3 checks, auto retry, suspect-line detectors, Retry Reading (cap 5), parse API, **store profiles + rule inference (A7)**, per-IP rate limiting | own `/eg-new-feature`; needs a handful of real receipts per chain, not a public dataset |
-| 3 | **no auth**: people are typed in per receipt; **store picker + rule review/edit screen (A7)**, edit screen (correction events, live balance bar, LOW CONFIDENCE marker), tagging, summary, demo receipt | own `/eg-new-feature` |
+| 2 | migration `0003` (store profiles, `store_profile_id`), image upload + image cleanup, `ReceiptParser` protocol + providers, C1/C2/C3 checks (server and web), auto retry, suspect-line detectors, Retry Reading (cap 5), parse API, **store profiles + rule inference + store picker and rule review/edit screen (A7)**, correction-event edit history, live balance bar, LOW CONFIDENCE marker | own `/eg-new-feature`, after Slice 3; needs a handful of real receipts per chain, not a public dataset |
+| 3 | **built before Slice 2.** Manual-entry splitting flow: migration `0002` (A8), receipt API (create/read/save/delete with computed allocation), per-IP and per-receipt rate limiting, request-size cap, purge cron, items/tax/people/tagging/summary UI, example receipt. Spec: `docs/design/slice-3-manual-split.md` | `/eg-new-feature` (design check closed 2026-09-23) |
 | 4 | auto-capture (corner/coverage/lighting/motion/focus checks, Capture + Upload always visible) | own `/eg-new-feature`, after iOS camera spike (`spikes/`) |
 
 Migration policy for later slices: Railway runs migrations in a pre-deploy step while the previous container still serves traffic, so every migration after `0001` must be backward-compatible with the previous app version (expand → deploy → contract).
@@ -222,7 +222,7 @@ decided by rungs 1–4 in deterministic, unit-tested code. Rationale: models rea
 do not know New York's grocery rules, and a deterministic layer can be tested and re-run over
 stored receipts.
 
-**Data model (new tables, Slice 2 migration `0002`; Slice 1's `0001` is unchanged).**
+**Data model (new tables, Slice 2 migration `0003`; `0001` and Slice 3's `0002` are unchanged).**
 - **store_profiles**: `id`, `name` (1..80, e.g. "Wegmans"),
   `slug` (`^[a-z0-9-]+$`, globally unique among non-archived), `status`
   (`draft` | `confirmed`), `rules` JSONB (non-tax rules: weighted-item pattern, discount placement,
@@ -278,35 +278,38 @@ personal data and is what makes the next scan better for everyone.
   and nothing to delete later. The allocator is unchanged: the client generates a UUID per person
   for the duration of the split.
 - **Receipts are ephemeral.** A receipt row exists only while the user is working on it, so that a
-  page refresh does not lose a parse and so the Retry Reading cap can be enforced server-side. It
-  carries `expires_at` (default `now() + 24h`) and is purged automatically.
+  page refresh does not lose work and so the Retry Reading cap can be enforced server-side. Its
+  `expires_at` is set to 24h after creation **and reset to 24h after every save** (sliding), and it
+  is purged automatically. At most 10,000 receipts may be live at once (503 beyond that) and each
+  receipt's state is capped at 256 KiB, so storage is bounded.
 - **Images are deleted as soon as parsing finishes**, and in any case when the receipt is purged.
 - **Nothing to log in to**, so there is no auth slice, no session cookie, and no per-user data to
-  leak. The trade-off: the parse endpoint is public and costs money per call, so per-IP rate
-  limiting and an upload size cap move from "nice to have" into Slice 2.
+  leak. The trade-off: the endpoints are public, so rate limiting (per IP for creates and overall,
+  per receipt for edits) and a request-size cap ship in Slice 3, before the costly parse endpoint.
 
-**Migration `0002` (Slice 2)**
+**Migration `0002` (Slice 3; full spec in `docs/design/slice-3-manual-split.md`)**
 - **Drop**: `users`, `households`, `participants`, `assignments`, `allocation_snapshots`. They hold
   no data, so the drop is safe. This also removes the deferred-FK machinery that existed only to
   make household deletes cascade.
-- **Reshape `receipts`**: drop `household_id` and `payer_participant_id`; add
-  `store_profile_id` UUID NULL (FK `store_profiles`, `ON DELETE SET NULL`),
-  `participants` JSONB NOT NULL DEFAULT `'[]'` (`[{key, display_name, sort_order}]`, names live and
-  die with the receipt), `expires_at` TIMESTAMPTZ NOT NULL DEFAULT `now() + interval '24 hours'`,
-  and index `ix_receipts_expires_at`. Keep `status`, `image_object_key`, image dimensions,
-  `manual_retry_count`, `active_parse_attempt_id`, timestamps.
-- **Keep**: `parse_attempts` (unchanged, still the audit trail for retries within a session) and
-  `corrections` (attempt-scoped edits, so a refresh keeps them). Both cascade away with the receipt.
-- **Replace assignments**: item → person tagging moves into `receipts.assignments` JSONB
-  (`{line_id: [participant_key, ...]}`). It only has meaning while the receipt exists, so a table
-  with foreign keys buys nothing.
+- **Reshape `receipts`**: drop `household_id` and `payer_participant_id`; add `content` JSONB (the
+  receipt being split, a `ParsedReceipt`), `participants` JSONB (`[{key, display_name}]` in display
+  order; names live and die with the receipt), `assignments` JSONB (`{line_id: [participant_key, ...]}`),
+  `is_example` BOOLEAN, `expires_at` TIMESTAMPTZ (sliding 24h) and index `ix_receipts_expires_at`;
+  add `'draft'` to the status check as the new default. Keep `image_object_key`, image dimensions,
+  `manual_retry_count`, `active_parse_attempt_id`, timestamps. `store_profile_id` arrives in `0003`.
+- **Keep**: `parse_attempts` and `corrections` (unchanged). Both cascade away with the receipt. How
+  Slice 3's whole-document saves relate to the correction-event model is decided in Slice 2.
+- **Saves are whole documents, last writer wins.** One tab never loses its own edits (it always sends
+  its current state, one request at a time); two tabs on one receipt overwrite each other.
 - **No allocation snapshots.** Totals are computed on demand by the allocator and shown; nothing is
   stored after the user leaves.
+- **Deliberate exception to expand → deploy → contract**: `0002` drops tables in one step. Safe only
+  because the deployed Slice 1 app never queries them (its only DB statement is `SELECT 1`).
 
 **Purge**
-- Every parse request first deletes expired receipts (cheap, indexed), and a scheduled Railway job
-  runs the same sweep hourly so an idle service still cleans up. Deleting a receipt row also deletes
-  its stored image.
+- A scheduled Railway job (`api/railway.cron.toml`, Slice 3) deletes expired receipts hourly, and
+  every create sweeps first, so an idle service still cleans up. From Slice 2, deleting a receipt row
+  also deletes its stored image.
 - The purge is a tested unit: given a receipt past `expires_at`, the row, its parse attempts, its
   corrections and its image are gone.
 
@@ -860,7 +863,7 @@ No auth in Slice 1. `/healthz`, `/readyz` public; fixed enum bodies expose no in
 7. `cd api && uv run alembic downgrade base && uv run alembic upgrade head` succeeds against the local dev DB.
 
 ### Out-of-scope follow-ups
-Slices 2–4 (A6); iOS Safari camera resolution spike (`spikes/camera-res/`); Week-1 20-receipt LLM benchmark; auth provider choice; object storage provider; allocation endpoint + 422 mapping; tax-base handling of store coupons; per-item multiple tax rates; voided/returned items and negative tax; invariants I1–I3 enforcement + tests; async DB driver if Slice 2 needs it; fairer tie-breaking in `allocate_proportionally` (rotation) if penny bias proves noticeable; automatic chain detection from the receipt header (A7); accounts/history if ever wanted (A8); **Slice 3 blocker:** disable the Vercel preview CORS allowance (`VERCEL_PREVIEW_PROJECT`/`VERCEL_TEAM_SLUG`) or replace it before any authenticated endpoint ships (B10).
+Slices 2–4 (A6); iOS Safari camera resolution spike (`spikes/camera-res/`); Week-1 20-receipt LLM benchmark; auth provider choice; object storage provider; ~~allocation endpoint + 422 mapping~~ (done in Slice 3); tax-base handling of store coupons; per-item multiple tax rates; voided/returned items and negative tax; invariants I1–I3 enforcement + tests; async DB driver if Slice 2 needs it; fairer tie-breaking in `allocate_proportionally` (rotation) if penny bias proves noticeable; automatic chain detection from the receipt header (A7); accounts/history if ever wanted (A8); Vercel preview CORS allowance: *resolved as not blocking in revision 7* — there is no auth and no endpoint lists receipts, so a site matching the preview regex can only create rate-limited receipts or touch one whose random id it already knows; revisit if auth is ever added (B10).
 
 ---
 
@@ -943,3 +946,8 @@ Round 4: readiness `implementation ready`; critic `design needs revision` (5 gap
 | Source | Change | Resolution |
 |---|---|---|
 | Owner decision | Product should be "scan a receipt, split it, leave" — no saved people, no receipt history | New A8 supersedes A4: migration `0002` drops `users`, `households`, `participants`, `assignments`, `allocation_snapshots`; `receipts` becomes ephemeral (`expires_at`, purge sweep, image deleted after parse) and carries `participants` + `assignments` as JSONB; no auth slice. A7 store profiles become a single global catalogue with promotion rules instead of household ownership. Slice 2 gains the migration, purge and per-IP rate limiting; Slice 3 loses auth and the roster UI. |
+
+## Revision log (revision 7 — Slice 3 before Slice 2)
+| Source | Change | Resolution |
+|---|---|---|
+| Slice 3 design (`docs/design/slice-3-manual-split.md`) | Manual-entry flow ships before parsing | §A6: Slice 3 = migration `0002`, receipt API, rate limiting, purge cron, manual UI; Slice 2 = parsing, checks, store profiles (`0003`), picker, correction events, balance bar, LOW CONFIDENCE. §A7 tables move to `0003`. §A8: participants `[{key, display_name}]`; receipts carry `content`/`participants`/`assignments`/`is_example`/sliding `expires_at`; storage caps; last-writer-wins saves; `0002` recorded as a deliberate one-step contract. I2/I3 superseded by `validate_state`. Preview-CORS "blocker" resolved as not blocking. |

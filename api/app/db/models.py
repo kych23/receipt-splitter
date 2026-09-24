@@ -1,8 +1,8 @@
-"""ORM models. Must stay in exact parity with alembic/versions/0001_initial.py.
+"""ORM models. Must stay in exact parity with the Alembic migrations (tests/db/test_migrations.py).
 
-Participants are never hard-deleted by the app (archive via ``archived_at``). The two FKs that
-reference participants are DEFERRABLE INITIALLY DEFERRED so deleting a household/user can cascade
-through receipts → parse_attempts → assignments before the participant reference is checked.
+Revision 6/7 scope: no accounts, no saved people, no receipt history. A receipt is an ephemeral row
+holding the receipt being split (``content``), the people splitting it and the item tags, and it
+expires 24 hours after its last save (see docs/design/slice-3-manual-split.md).
 """
 
 import uuid
@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -27,6 +28,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
+RECEIPT_STATUSES = ("draft", "uploaded", "parsing", "needs_review", "finalized", "parse_failed")
+EMPTY_CONTENT_SQL = """'{"lines": [], "tax_lines": []}'::jsonb"""
+EXPIRES_AT_DEFAULT_SQL = "(now() + interval '24 hours')"
+
 
 def _uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(
@@ -38,69 +43,19 @@ def _created_at() -> Mapped[datetime]:
     return mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    created_at: Mapped[datetime] = _created_at()
-
-
-class Household(Base):
-    __tablename__ = "households"
-    __table_args__ = (CheckConstraint("char_length(name) BETWEEN 1 AND 80", name="name_length"),)
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = _created_at()
-
-
-class Participant(Base):
-    __tablename__ = "participants"
-    __table_args__ = (
-        CheckConstraint("char_length(display_name) BETWEEN 1 AND 40", name="display_name_length"),
-        Index(
-            "uq_participants_active_display_name",
-            "household_id",
-            "display_name",
-            unique=True,
-            postgresql_where=text("archived_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE"), nullable=False
-    )
-    display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = _created_at()
-
-
 class Receipt(Base):
     __tablename__ = "receipts"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('uploaded', 'parsing', 'needs_review', 'finalized', 'parse_failed')",
+            "status IN (" + ", ".join(f"'{s}'" for s in RECEIPT_STATUSES) + ")",
             name="status_valid",
         ),
         CheckConstraint("manual_retry_count BETWEEN 0 AND 5", name="manual_retry_count_range"),
+        Index("ix_receipts_expires_at", "expires_at"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    household_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("households.id", ondelete="CASCADE"), nullable=False
-    )
-    payer_participant_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("participants.id", ondelete="NO ACTION", deferrable=True, initially="DEFERRED"),
-        nullable=True,
-    )
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
     image_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     image_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -112,9 +67,26 @@ class Receipt(Base):
     manual_retry_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    content: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text(EMPTY_CONTENT_SQL)
+    )
+    participants: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    assignments: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    is_example: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = _created_at()
+    # clock_timestamp() (not now()) so updates advance even inside one transaction.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.clock_timestamp(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text(EXPIRES_AT_DEFAULT_SQL)
     )
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -180,44 +152,4 @@ class Correction(Base):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     line_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = _created_at()
-
-
-class Assignment(Base):
-    __tablename__ = "assignments"
-
-    parse_attempt_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("parse_attempts.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    line_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    participant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("participants.id", ondelete="NO ACTION", deferrable=True, initially="DEFERRED"),
-        primary_key=True,
-    )
-    created_at: Mapped[datetime] = _created_at()
-
-
-class AllocationSnapshot(Base):
-    __tablename__ = "allocation_snapshots"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["parse_attempt_id", "receipt_id"],
-            ["parse_attempts.id", "parse_attempts.receipt_id"],
-            ondelete="CASCADE",
-            name="fk_allocation_snapshots_attempt_receipt",
-        ),
-        Index("ix_allocation_snapshots_receipt_id_created_at", "receipt_id", "created_at"),
-    )
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    receipt_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("receipts.id", ondelete="CASCADE"), nullable=False
-    )
-    parse_attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    allocator_version: Mapped[str] = mapped_column(Text, nullable=False)
-    input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = _created_at()

@@ -38,10 +38,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create */
+        post: operations["create_v1_receipts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/receipts/{receipt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read */
+        get: operations["read_v1_receipts__receipt_id__get"];
+        /** Save */
+        put: operations["save_v1_receipts__receipt_id__put"];
+        post?: never;
+        /** Remove */
+        delete: operations["remove_v1_receipts__receipt_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AllocationProblem */
+        AllocationProblem: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "no_participants" | "too_many_participants" | "duplicate_participant" | "unknown_line" | "assigned_non_assignable" | "empty_assignment" | "unknown_participant" | "unassigned_line" | "negative_line_net" | "no_assignable_lines" | "discount_exceeds_items";
+            /** Detail */
+            detail: string;
+        };
+        /** AllocationResult */
+        AllocationResult: {
+            /** Allocator Version */
+            allocator_version: string;
+            /** Computed Total Cents */
+            computed_total_cents: number;
+            /** Participants */
+            participants: components["schemas"]["ParticipantAllocation"][];
+            /** Printed Total Cents */
+            printed_total_cents: number | null;
+            /** Warnings */
+            warnings: components["schemas"]["AllocationWarning"][];
+        };
+        /**
+         * AllocationWarning
+         * @enum {string}
+         */
+        AllocationWarning: "tax_fallback_proportional" | "tax_without_taxable_lines" | "unknown_taxability" | "zero_base_equal_split";
+        /** CreateReceiptRequest */
+        CreateReceiptRequest: {
+            /**
+             * Example
+             * @default false
+             */
+            example: boolean;
+        };
+        /** ErrorResponse */
+        ErrorResponse: {
+            /** Detail */
+            detail: string;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -49,6 +131,75 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** LineShare */
+        LineShare: {
+            /** Line Id */
+            line_id: string;
+            /** Share Cents */
+            share_cents: number;
+            /** Split Count */
+            split_count: number;
+        };
+        /** ParsedReceipt */
+        ParsedReceipt: {
+            /** Chain */
+            chain?: string | null;
+            /**
+             * Currency
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+            /** Lines */
+            lines: components["schemas"]["ReceiptLine"][];
+            /** Merchant Name */
+            merchant_name?: string | null;
+            /** Printed Item Count */
+            printed_item_count?: number | null;
+            /** Purchased On */
+            purchased_on?: string | null;
+            /** Subtotal Cents */
+            subtotal_cents?: number | null;
+            /**
+             * Tax Lines
+             * @default []
+             */
+            tax_lines: components["schemas"]["TaxLine"][];
+            /** Total Cents */
+            total_cents?: number | null;
+        };
+        /** Participant */
+        Participant: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Key
+             * Format: uuid
+             */
+            key: string;
+        };
+        /** ParticipantAllocation */
+        ParticipantAllocation: {
+            /** Fees Cents */
+            fees_cents: number;
+            /** Items Cents */
+            items_cents: number;
+            /** Line Shares */
+            line_shares: components["schemas"]["LineShare"][];
+            /**
+             * Participant Id
+             * Format: uuid
+             */
+            participant_id: string;
+            /** Receipt Discounts Cents */
+            receipt_discounts_cents: number;
+            /** Tax Base Cents */
+            tax_base_cents: number;
+            /** Tax Cents */
+            tax_cents: number;
+            /** Total Cents */
+            total_cents: number;
         };
         /** ReadyResponse */
         ReadyResponse: {
@@ -62,6 +213,94 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "unavailable";
+        };
+        /** ReceiptLine */
+        ReceiptLine: {
+            /** Discount Target Line Id */
+            discount_target_line_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "item" | "discount" | "fee" | "deposit";
+            /** Line Id */
+            line_id: string;
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity?: number | string | null;
+            /**
+             * Raw Text
+             * @default
+             */
+            raw_text: string;
+            /** Tax Code */
+            tax_code?: string | null;
+            /** Taxable */
+            taxable?: boolean | null;
+            /** Total Cents */
+            total_cents: number;
+            /** Unit Price Cents */
+            unit_price_cents?: number | null;
+        };
+        /** ReceiptResponse */
+        ReceiptResponse: {
+            allocation: components["schemas"]["AllocationResult"] | null;
+            allocation_problem: components["schemas"]["AllocationProblem"] | null;
+            /** Assignments */
+            assignments: {
+                [key: string]: string[];
+            };
+            content: components["schemas"]["ParsedReceipt"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Example */
+            is_example: boolean;
+            /** Participants */
+            participants: components["schemas"]["Participant"][];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SaveReceiptRequest */
+        SaveReceiptRequest: {
+            /** Assignments */
+            assignments: {
+                [key: string]: string[];
+            };
+            content: components["schemas"]["ParsedReceipt"];
+            /** Participants */
+            participants: components["schemas"]["Participant"][];
+        };
+        /** TaxLine */
+        TaxLine: {
+            /** Amount Cents */
+            amount_cents: number;
+            /** Label */
+            label: string;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
         };
     };
     responses: never;
@@ -117,6 +356,278 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadyResponse"];
+                };
+            };
+        };
+    };
+    create_v1_receipts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too many requests (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Live-receipt cap reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    read_v1_receipts__receipt_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptResponse"];
+                };
+            };
+            /** @description Receipt not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too many requests (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_v1_receipts__receipt_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptResponse"];
+                };
+            };
+            /** @description Receipt not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too many requests (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_v1_receipts__receipt_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Receipt not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too many requests (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

@@ -1,0 +1,10 @@
+# Railway service "purge": deletes expired receipts hourly.
+# Point this service's "Config-as-code path" at /api/railway.cron.toml so it does NOT inherit
+# railway.toml (which starts uvicorn, runs migrations pre-deploy, and health-checks /readyz).
+[build]
+builder = "RAILPACK"
+
+[deploy]
+startCommand = "uv run --frozen --no-dev python -m app.scripts.purge"
+cronSchedule = "0 * * * *"
+restartPolicyType = "NEVER"

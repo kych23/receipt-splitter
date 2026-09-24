@@ -21,9 +21,11 @@ def client() -> TestClient:
     return TestClient(create_app(settings))
 
 
-def _preflight(client: TestClient, origin: str) -> dict[str, str]:
+def _preflight(
+    client: TestClient, origin: str, method: str = "GET", path: str = "/readyz"
+) -> dict[str, str]:
     response = client.options(
-        "/readyz", headers={"Origin": origin, "Access-Control-Request-Method": "GET"}
+        path, headers={"Origin": origin, "Access-Control-Request-Method": method}
     )
     return dict(response.headers)
 
@@ -44,3 +46,14 @@ def test_preflight_rejects_unknown_origins(client: TestClient, origin: str) -> N
 def test_simple_request_from_allowed_origin_gets_cors_header(client: TestClient) -> None:
     response = client.get("/healthz", headers={"Origin": LOCAL_ORIGIN})
     assert response.headers.get("access-control-allow-origin") == LOCAL_ORIGIN
+
+
+def test_put_preflight_allowed(client: TestClient) -> None:
+    headers = _preflight(client, LOCAL_ORIGIN, method="PUT", path="/v1/receipts/x")
+    assert headers.get("access-control-allow-origin") == LOCAL_ORIGIN
+    assert "PUT" in headers["access-control-allow-methods"]
+
+
+def test_retry_after_is_exposed_to_the_browser(client: TestClient) -> None:
+    response = client.get("/healthz", headers={"Origin": LOCAL_ORIGIN})
+    assert "retry-after" in response.headers["access-control-expose-headers"].lower()
