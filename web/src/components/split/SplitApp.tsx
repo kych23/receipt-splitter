@@ -9,24 +9,18 @@ import {
   saveReceipt,
 } from "@/lib/api/receipts";
 import { Autosaver, type SaveStatus } from "@/lib/autosave";
-import {
-  initialState,
-  reducer,
-  TAX_INVALID,
-  untaggedCount,
-} from "@/lib/receipt-state";
+import { initialState, reducer, untaggedCount } from "@/lib/receipt-state";
 import {
   setStoredReceiptId,
   useStoredReceiptId,
 } from "@/lib/stored-receipt-id";
-import { ItemsEditor } from "./ItemsEditor";
 import { PeopleEditor } from "./PeopleEditor";
+import { ReceiptSlip } from "./ReceiptSlip";
 import { StartScreen } from "./StartScreen";
 import { Summary } from "./Summary";
-import { button } from "./styles";
-import { TagList } from "./TagList";
-import { TaxField } from "./TaxField";
+import { button, dangerButton } from "./styles";
 import { TotalsBar } from "./TotalsBar";
+import { TotalsSheet } from "./TotalsSheet";
 
 type ExitHandler = (notice: string | null) => void;
 
@@ -47,6 +41,7 @@ function ReceiptEditor({
   const [serverReceipt, setServerReceipt] = useState(initialReceipt);
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // The saver reads the latest state through a ref, updated after each render.
   const stateRef = useRef(state);
@@ -111,41 +106,54 @@ function ReceiptEditor({
   const stale = state.dirty || status.kind === "invalid";
 
   return (
-    <div className="flex flex-col gap-8">
-      {serverReceipt.is_example && (
-        <p className="self-start rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900 dark:bg-amber-900 dark:text-amber-100">
-          Example receipt
+    <div className="flex flex-col gap-6">
+      <PeopleEditor state={state} dispatch={dispatch} />
+      <ReceiptSlip
+        state={state}
+        invalid={invalid}
+        isExample={serverReceipt.is_example}
+        dispatch={dispatch}
+      />
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={button}
+          onClick={() => void handleStartNew()}
+        >
+          Start a new receipt
+        </button>
+        <button
+          type="button"
+          className={dangerButton}
+          onClick={() => void handleDelete()}
+        >
+          Delete receipt
+        </button>
+      </div>
+      {deleteError && (
+        <p role="alert" className="text-danger">
+          {deleteError}
         </p>
       )}
-      <ItemsEditor
-        items={state.items}
-        readOnlyLines={state.readOnlyLines}
-        invalid={invalid}
-        dispatch={dispatch}
-      />
-      <TaxField
-        taxInput={state.taxInput}
-        readOnly={state.extraTaxLines !== null}
-        invalid={invalid.has(TAX_INVALID)}
-        dispatch={dispatch}
-      />
-      <PeopleEditor state={state} dispatch={dispatch} />
-      <TagList state={state} dispatch={dispatch} />
-      <Summary
-        receipt={serverReceipt}
-        state={state}
-        stale={stale}
-        deleteError={deleteError}
-        onDelete={() => void handleDelete()}
-        onStartNew={() => void handleStartNew()}
-      />
       <TotalsBar
         receipt={serverReceipt}
+        people={state.people}
         dirty={state.dirty}
         status={status}
         untagged={untaggedCount(state)}
         onRetry={() => saverRef.current?.retryNow()}
+        onOpen={() => setSheetOpen(true)}
       />
+      <TotalsSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
+        <Summary
+          receipt={serverReceipt}
+          state={state}
+          stale={stale}
+          dirty={state.dirty}
+          status={status}
+          onRetry={() => saverRef.current?.retryNow()}
+        />
+      </TotalsSheet>
     </div>
   );
 }

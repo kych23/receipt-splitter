@@ -6,7 +6,7 @@ import {
   resetStoredReceiptIdForTests,
   setStoredReceiptId,
 } from "@/lib/stored-receipt-id";
-import { exampleReceipt, jsonResponse } from "@/test/fixtures";
+import { EXAMPLE_TOTALS, exampleReceipt, jsonResponse } from "@/test/fixtures";
 import { SplitApp } from "./SplitApp";
 
 const EXAMPLE = exampleReceipt();
@@ -64,7 +64,7 @@ async function openExample(): Promise<void> {
   await flush();
 }
 
-const bar = () => screen.getByRole("contentinfo", { name: "Totals" });
+const bar = () => screen.getByRole("region", { name: "Totals" });
 const taxInput = () => screen.getByLabelText("Tax on receipt");
 
 describe("SplitApp", () => {
@@ -92,7 +92,7 @@ describe("SplitApp", () => {
       method: "POST",
       body: { example: true },
     });
-    expect(bar()).toHaveTextContent("Alex $4.26 · Sam $15.03 · Jordan $18.80");
+    expect(bar()).toHaveTextContent(EXAMPLE_TOTALS);
     expect(screen.getByText("Example receipt")).toBeInTheDocument();
     expect(window.localStorage.getItem("receiptsplit.receiptId")).toBe(
       EXAMPLE.id,
@@ -107,6 +107,7 @@ describe("SplitApp", () => {
     fireEvent.change(taxInput(), { target: { value: "2.50" } });
     await flush(599);
     expect(api.puts()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
     expect(screen.getByRole("button", { name: "Copy summary" })).toBeDisabled();
     await flush(1);
     expect(api.puts()).toHaveLength(1);
@@ -117,6 +118,60 @@ describe("SplitApp", () => {
     expect(api.puts()[0].url).toBe(RECEIPT_URL);
     await flush();
     expect(screen.getByRole("button", { name: "Copy summary" })).toBeEnabled();
+  });
+
+  it("the breakdown sheet opens from the totals bar and closes", async () => {
+    mockApi({ POST: [jsonResponse(EXAMPLE, 201)] });
+    await openExample();
+    expect(screen.queryByRole("heading", { name: "Who owes what" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+    expect(
+      screen.getByRole("heading", { name: "Who owes what" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Kitsch")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("heading", { name: "Who owes what" })).toBeNull();
+  });
+
+  it("the sheet can reopen after Esc or a backdrop tap closes it", async () => {
+    mockApi({ POST: [jsonResponse(EXAMPLE, 201)] });
+    await openExample();
+    const heading = () =>
+      screen.queryByRole("heading", { name: "Who owes what" });
+    const openSheet = () =>
+      fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+    const dialog = document.querySelector("dialog")!;
+
+    openSheet();
+    fireEvent(dialog, new Event("close")); // what the browser fires after Esc
+    expect(heading()).toBeNull();
+    openSheet();
+    expect(heading()).toBeInTheDocument();
+
+    // A drag that starts inside the panel and is released over the backdrop must not close it.
+    fireEvent.pointerDown(heading()!);
+    fireEvent.click(dialog);
+    expect(heading()).toBeInTheDocument();
+
+    // A real backdrop tap: press and release both on the <dialog> itself.
+    fireEvent.pointerDown(dialog);
+    fireEvent.click(dialog);
+    expect(heading()).toBeNull();
+    openSheet();
+    expect(heading()).toBeInTheDocument();
+  });
+
+  it("an invalid tax gets error text, not just a red border", async () => {
+    const api = mockApi({ POST: [jsonResponse(EXAMPLE, 201)], PUT: [saved()] });
+    await openExample();
+    fireEvent.change(taxInput(), { target: { value: "2.4.6" } });
+    await flush(600);
+    expect(api.puts()).toHaveLength(0);
+    expect(taxInput()).toHaveAttribute("aria-invalid", "true");
+    expect(taxInput()).toHaveClass("border-danger");
+    expect(taxInput()).toHaveAccessibleDescription(
+      "Type the tax printed on your receipt Enter the tax like 1.23",
+    );
   });
 
   it("does not send an invalid row and highlights it", async () => {
@@ -130,6 +185,13 @@ describe("SplitApp", () => {
     expect(bar()).toHaveTextContent("Fix highlighted rows to update totals");
     expect(screen.getByLabelText("Item 1 price").closest("li")).toHaveAttribute(
       "data-invalid",
+    );
+    const price = screen.getByLabelText("Item 1 price");
+    expect(price).toHaveClass("border-danger");
+    expect(price).not.toHaveClass("border-rule");
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(price).toHaveAccessibleDescription(
+      "Needs a name and a price like 4.99",
     );
   });
 
@@ -262,7 +324,7 @@ describe("SplitApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await flush();
     expect(api.calls.filter((c) => c.method === "GET")).toHaveLength(2);
-    expect(bar()).toHaveTextContent("Alex $4.26");
+    expect(bar()).toHaveTextContent(EXAMPLE_TOTALS);
   });
 
   it("can leave a receipt that keeps failing to load", async () => {

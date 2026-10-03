@@ -5,7 +5,12 @@ import type {
   AllocationWarning,
 } from "@/lib/api/receipts";
 import type { SaveStatus } from "@/lib/autosave";
-import { emptyReceipt, exampleReceipt } from "@/test/fixtures";
+import {
+  EXAMPLE_PEOPLE,
+  EXAMPLE_TOTALS,
+  emptyReceipt,
+  exampleReceipt,
+} from "@/test/fixtures";
 import { TotalsBar } from "./TotalsBar";
 
 function bar({
@@ -14,10 +19,13 @@ function bar({
   status = { kind: "idle" } as SaveStatus,
   untagged = 0,
   onRetry = () => {},
+  onOpen = () => {},
 } = {}) {
   return render(
     <TotalsBar
       receipt={receipt}
+      people={EXAMPLE_PEOPLE}
+      onOpen={onOpen}
       dirty={dirty}
       status={status}
       untagged={untagged}
@@ -26,14 +34,57 @@ function bar({
   );
 }
 
-const totals = () => screen.getByRole("contentinfo", { name: "Totals" });
+const totals = () => screen.getByRole("region", { name: "Totals" });
 
 describe("TotalsBar", () => {
   it("shows each person's total", () => {
     bar();
+    expect(totals()).toHaveTextContent(EXAMPLE_TOTALS);
+  });
+
+  it("shows two people then '+1 more' for three, so large totals still fit", () => {
+    const receipt = exampleReceipt();
+    for (const p of receipt.allocation!.participants) p.total_cents = 12345;
+    bar({ receipt });
     expect(totals()).toHaveTextContent(
-      "Alex $4.26 · Sam $15.03 · Jordan $18.80",
+      /Alex\s*\$123\.45.*Sam\s*\$123\.45.*\+1 more/,
     );
+    expect(totals()).not.toHaveTextContent("Jordan");
+  });
+
+  it("keeps '+K more' outside the clipped people and unshrinkable", () => {
+    const receipt = exampleReceipt();
+    for (const p of receipt.allocation!.participants) p.total_cents = 123456;
+    bar({ receipt });
+    const more = screen.getByText("+1 more");
+    const people = screen.getByTestId("totals-people");
+    expect(people).toHaveClass("overflow-hidden");
+    expect(people).not.toContainElement(more);
+    expect(more).toHaveClass("shrink-0");
+  });
+
+  it("stays one row: beyond three people it shows two plus '+K more'", () => {
+    const receipt = exampleReceipt();
+    const extra = (id: string) => ({
+      ...receipt.allocation!.participants[0],
+      participant_id: id,
+    });
+    receipt.allocation!.participants.push(
+      extra("00000000-0000-4000-8000-000000000004"),
+    );
+    bar({ receipt });
+    expect(totals()).toHaveTextContent("+2 more");
+    expect(totals()).toHaveTextContent(/Alex\s*\$4\.26/);
+    expect(totals()).not.toHaveTextContent("Jordan");
+  });
+
+  it("Details opens the breakdown", () => {
+    const onOpen = vi.fn();
+    bar({ onOpen });
+    const details = screen.getByRole("button", { name: /Details/ });
+    expect(details).toHaveAttribute("aria-haspopup", "dialog");
+    fireEvent.click(details);
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it.each<[AllocationProblemCode, string]>([
@@ -62,13 +113,15 @@ describe("TotalsBar", () => {
     receipt.allocation!.warnings = [warning];
     bar({ receipt });
     if (message) expect(totals()).toHaveTextContent(message);
-    else expect(totals().querySelectorAll("p")).toHaveLength(1);
+    else expect(totals()).not.toHaveTextContent(/Mark every item|Tax entered/);
   });
 
-  it("dims totals and says Saving… while dirty", () => {
+  it("says Saving… while dirty, without fading the totals", () => {
     bar({ dirty: true });
     expect(screen.getByRole("status")).toHaveTextContent("Saving…");
-    expect(screen.getByText(/Alex \$4\.26/)).toHaveClass("opacity-50");
+    expect(
+      screen.getByRole("button", { name: /Details/ }).className,
+    ).not.toMatch(/opacity/);
   });
 
   it.each<[SaveStatus, string]>([

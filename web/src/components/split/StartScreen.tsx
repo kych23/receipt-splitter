@@ -40,13 +40,43 @@ export function StartScreen({ notice, onStarted }: Props): React.JSX.Element {
   }
 
   return (
-    <section className="flex flex-col gap-4 py-6">
-      {notice && <p className="font-medium">{notice}</p>}
-      <p>
-        Type in a receipt, add who&apos;s splitting it, tap items to people, and
-        get exact totals.
-      </p>
+    <section aria-labelledby="start-title" className="flex flex-col gap-8 pt-2">
       <div className="flex flex-col gap-3">
+        <h2 id="start-title" className="text-3xl leading-tight font-bold">
+          Split a grocery receipt to the cent.
+        </h2>
+        <p className="text-lg text-ink-muted">
+          Type in the items, tap who had what, and see what everyone owes. Tax
+          is charged only on the items that were taxed.
+        </p>
+      </div>
+
+      {/* Decorative: a sample of what the app produces. */}
+      <div
+        aria-hidden
+        className="slip mx-2 -rotate-1 px-5 pt-4 pb-5 font-mono text-sm"
+      >
+        <p className="pb-2 font-semibold">TARGET</p>
+        <p className="rule-dashed flex justify-between pt-2">
+          <span>Cheetos</span>
+          <span>4.89</span>
+        </p>
+        <p className="flex justify-between">
+          <span>Kitsch</span>
+          <span>9.99 T</span>
+        </p>
+        <p className="flex justify-between">
+          <span>Slime Mart</span>
+          <span>5.00 T</span>
+        </p>
+        <p className="rule-dashed mt-2 flex justify-between pt-2 font-semibold">
+          <span>Sam owes</span>
+          <span>15.03</span>
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {notice && <p className="font-semibold">{notice}</p>}
         <button
           type="button"
           className={primaryButton}
@@ -63,12 +93,12 @@ export function StartScreen({ notice, onStarted }: Props): React.JSX.Element {
         >
           Try an example
         </button>
+        {error && (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
+        )}
       </div>
-      {error && (
-        <p role="alert" className="text-red-700 dark:text-red-400">
-          {error}
-        </p>
-      )}
     </section>
   );
 }

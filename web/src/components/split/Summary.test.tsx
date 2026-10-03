@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { SaveStatus } from "@/lib/autosave";
 import { initialState, reducer } from "@/lib/receipt-state";
 import { emptyReceipt, exampleReceipt } from "@/test/fixtures";
 import { Summary } from "./Summary";
@@ -7,16 +8,30 @@ import { Summary } from "./Summary";
 const EXPECTED_TEXT =
   "Target — $38.09\nAlex $4.26\nSam $15.03\nJordan $18.80\n(split with ReceiptSplit)";
 
-function renderSummary({ stale = false, receipt = exampleReceipt() } = {}) {
+type RenderOptions = {
+  stale?: boolean;
+  dirty?: boolean;
+  status?: SaveStatus;
+  receipt?: ReturnType<typeof exampleReceipt>;
+  onRetry?: () => void;
+};
+
+function renderSummary({
+  stale = false,
+  dirty,
+  status = { kind: "idle" },
+  receipt = exampleReceipt(),
+  onRetry = () => {},
+}: RenderOptions = {}) {
   const state = reducer(initialState(), { type: "loadFromServer", receipt });
   return render(
     <Summary
       receipt={receipt}
       state={state}
       stale={stale}
-      deleteError={null}
-      onDelete={() => {}}
-      onStartNew={() => {}}
+      dirty={dirty ?? stale}
+      status={status}
+      onRetry={onRetry}
     />,
   );
 }
@@ -70,10 +85,44 @@ describe("Summary", () => {
     expect(textarea).toHaveAttribute("readonly");
   });
 
-  it("disables Copy while stale and dims amounts", () => {
+  it("disables Copy while stale and says the totals are updating", () => {
     renderSummary({ stale: true });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Updating after your last edit…",
+    );
     expect(copyButton()).toBeDisabled();
     expect(screen.getByText("Saving… copy when done")).toBeInTheDocument();
+  });
+
+  it("shows the real reason when no save is coming, not 'Updating'", () => {
+    renderSummary({
+      stale: true,
+      dirty: true,
+      status: { kind: "invalid", lineIds: ["x"] },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Fix highlighted rows to update totals",
+    );
+    expect(screen.queryByText(/Updating|Saving…/)).toBeNull();
+    expect(
+      screen.getByText("Copy works once your changes are saved"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("list")[0]).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+  });
+
+  it("offers Retry inside the sheet after saving gave up", () => {
+    const onRetry = vi.fn();
+    renderSummary({
+      stale: true,
+      dirty: true,
+      status: { kind: "gave_up" },
+      onRetry,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 
   it("disables Copy without an allocation", () => {

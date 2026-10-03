@@ -1,26 +1,147 @@
 @import "tailwindcss";
 
+/*
+ * "Receipt paper": a thermal-paper slip on a cool checkout-counter background, annotated with a
+ * cobalt ballpoint. Every text/background pair below meets WCAG 2.2 AA (4.5:1 for text, 3:1 for
+ * control boundaries) in both themes.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --page: #dce2e7; /* counter */
+  --paper: #fcfcf9; /* thermal paper */
+  --ink: #2a2c2f; /* print */
+  --ink-muted: #5c6066; /* 6:1 on paper */
+  --rule: #747a82; /* control borders: >= 3:1 on paper and page */
+  --divider: #9aa0a6; /* decorative dashed rules */
+  --pen: #2440b3; /* actions + focus: the ballpoint */
+  --pen-contrast: #ffffff;
+  --danger: #a32116;
+  --chip-ring: transparent; /* pressed-chip outline, needed only on dark paper */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --page: #151a20;
+    --paper: #23272c;
+    --ink: #e7e5df;
+    --ink-muted: #b3b5b8;
+    --rule: #7d838a;
+    --divider: #6b7178;
+    --pen: #a9b8ff;
+    --pen-contrast: #111a40;
+    --danger: #ff9e94;
+    --chip-ring: #e7e5df;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-page: var(--page);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-divider: var(--divider);
+  --color-pen: var(--pen);
+  --color-pen-contrast: var(--pen-contrast);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-ui), system-ui, sans-serif;
+  --font-mono: var(--font-print);
+}
+
+/*
+ * Custom CSS lives in layers: unlayered rules would beat every Tailwind utility (so e.g.
+ * `first:border-t-0` on a `.rule-dashed` row would silently do nothing).
+ */
+@layer base {
+  /* Keep a focused control above the sticky totals bar when the browser scrolls to it. */
+  html {
+    scroll-padding-bottom: 10rem; /* the bar is one row plus at most a warning and a status */
+  }
+
+  /* A modal <dialog> doesn't stop iOS Safari scrolling the page behind it. */
+  html:has(dialog.sheet[open]) {
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--font-ui), system-ui, sans-serif;
+  }
+
+  /* One visible focus style everywhere: the pen... */
+  :focus-visible {
+    outline: 3px solid var(--pen);
+    outline-offset: 2px;
+  }
+
+  /* ...except on the ink-coloured totals bar, where pen-on-ink is ~1.6:1. */
+  .totals-bar :focus-visible {
+    outline-color: var(--paper);
+  }
+}
+
+@layer components {
+  /* The slip. drop-shadow (not box-shadow) follows the torn edge. */
+  .slip {
+    position: relative;
+    background: var(--paper);
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.12))
+      drop-shadow(0 6px 10px rgb(0 0 0 / 0.08));
+  }
+
+  .slip::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: -10px;
+    height: 10px;
+    background:
+      linear-gradient(135deg, var(--paper) 50%, transparent 50%) 0 0 / 20px 10px
+        repeat-x,
+      linear-gradient(225deg, var(--paper) 50%, transparent 50%) 0 0 / 20px 10px
+        repeat-x;
+  }
+
+  .rule-dashed {
+    border-top: 2px dashed var(--divider);
+  }
+
+  /* Bottom sheet: native <dialog>, so focus containment and Esc come from the browser. */
+  dialog.sheet {
+    margin: auto auto 0;
+    width: 100%;
+    max-width: 36rem;
+    max-height: 85dvh;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--ink);
+  }
+
+  /* The sheet sits flush with the screen bottom: no torn edge, and nothing to overflow the
+     dialog (its UA overflow:auto would otherwise scroll 10px and lift the sheet on iOS). */
+  dialog.sheet {
+    overflow: hidden;
+  }
+
+  dialog.sheet .slip::after {
+    content: none;
+  }
+
+  dialog.sheet::backdrop {
+    background: rgb(10 14 20 / 0.55);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    dialog.sheet[open] {
+      animation: sheet-up 180ms ease-out;
+    }
+  }
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+  }
 }

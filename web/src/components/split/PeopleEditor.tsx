@@ -6,6 +6,7 @@ import {
   addPersonError,
   type EditorState,
 } from "@/lib/receipt-state";
+import { PersonBadge } from "./PersonBadge";
 import { button, input, sectionTitle } from "./styles";
 
 type Props = {
@@ -27,21 +28,22 @@ export function PeopleEditor({ state, dispatch }: Props): React.JSX.Element {
   }
 
   return (
-    <section aria-labelledby="people-title" className="flex flex-col gap-2">
+    <section aria-labelledby="people-title" className="flex flex-col gap-3">
       <h2 id="people-title" className={sectionTitle}>
-        People
+        Who&apos;s splitting
       </h2>
       {state.people.length > 0 && (
         <ul className="flex flex-wrap gap-2">
-          {state.people.map((person) => (
+          {state.people.map((person, index) => (
             <li
               key={person.key}
-              className="flex items-center rounded-full border border-neutral-300 pl-4 dark:border-neutral-700"
+              className="flex min-h-11 items-center gap-2 rounded-full bg-paper py-1 pl-2"
             >
-              <span>{person.name}</span>
+              <PersonBadge name={person.name} index={index} />
+              <span className="font-semibold">{person.name}</span>
               <button
                 type="button"
-                className="min-h-11 min-w-11 text-lg"
+                className="min-h-11 min-w-11 rounded-full text-xl text-ink-muted"
                 aria-label={`Remove ${person.name}`}
                 onClick={() =>
                   dispatch({ type: "removePerson", key: person.key })
@@ -59,8 +61,8 @@ export function PeopleEditor({ state, dispatch }: Props): React.JSX.Element {
         </label>
         <input
           id="person-name"
-          className={`${input} min-w-0 flex-1`}
-          placeholder="Name"
+          className={`${input(error !== null)} min-w-0 flex-1`}
+          placeholder="Add a name"
           autoComplete="off"
           value={name}
           aria-invalid={error !== null || undefined}
@@ -75,11 +77,7 @@ export function PeopleEditor({ state, dispatch }: Props): React.JSX.Element {
         </button>
       </form>
       {error && (
-        <p
-          id="person-error"
-          role="alert"
-          className="text-sm text-red-700 dark:text-red-400"
-        >
+        <p id="person-error" role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}

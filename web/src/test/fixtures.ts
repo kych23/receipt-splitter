@@ -41,3 +41,12 @@ export function jsonResponse(
     headers: { "Content-Type": "application/json", ...headers },
   });
 }
+
+/** The example's totals as the one-row totals bar renders them: two people, then "+1 more". */
+export const EXAMPLE_TOTALS = /Alex\s*\$4\.26.*Sam\s*\$15\.03.*\+1 more/;
+
+export const EXAMPLE_PEOPLE = [
+  { key: ALEX, name: "Alex" },
+  { key: SAM, name: "Sam" },
+  { key: JORDAN, name: "Jordan" },
+];
