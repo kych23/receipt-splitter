@@ -379,15 +379,20 @@ def get_engine(settings: Annotated[Settings, Depends(get_app_settings)]) -> Engi
 def get_session(engine: Annotated[Engine, Depends(get_engine)]) -> Iterator[Session]
 
 def check_database(engine: Engine) -> None:
+    head, known = migration_revisions()   # cached; loaded at startup by create_app
     with engine.begin() as conn:
         conn.execute(text("SET LOCAL statement_timeout = 2000"))   # scoped to this check only
-        conn.execute(text("SELECT 1"))
+        versions = set(conn.scalars(text("SELECT version_num FROM alembic_version")))
+    if head in versions:
+        return
+    if not versions or versions <= known:   # unmigrated or behind; unknown revision = newer = ready
+        raise SchemaNotCurrent(...)
 
 def get_database_check(engine: Annotated[Engine, Depends(get_engine)]) -> DatabaseCheck:
     return lambda: check_database(engine)
 ```
 *(Updated during pre-commit review: DB dependencies derive the engine from the settings passed to `create_app`, never from the process-wide `DATABASE_URL`, so an app built for one database can't silently use another; the statement timeout is scoped to the readiness transaction instead of every query.)*
-`get_session` is not used by any Slice 1 route (future slices use it); it exists so the dependency pattern is established. Engine creation is lazy; importing never connects. Malformed URLs are rejected at startup by `Settings` (B1), so at request time `check_database` only raises `SQLAlchemyError` subclasses (e.g. `OperationalError`), which the route's `try` handles.
+`get_session` is not used by any Slice 1 route (future slices use it); it exists so the dependency pattern is established. Engine creation is lazy; importing never connects. Malformed URLs are rejected at startup by `Settings` (B1), so at request time `check_database` raises only `SQLAlchemyError` subclasses (database unreachable, or `alembic_version` missing) or `SchemaNotCurrent` (schema behind this code's head; see the schema check below), and the route's `try` handles both.
 
 `alembic/env.py`: `url = context.config.attributes.get("connection_url") or get_settings().database_url`; online mode builds `create_engine(url, poolclass=NullPool)`; `target_metadata = Base.metadata` (imports `app.db.models` so all tables register). Offline mode not supported (raises `RuntimeError("offline migrations not supported")`).
 `alembic.ini` and `alembic/script.py.mako` come from `uv run alembic init alembic` (generic template), with these changes to `alembic.ini`: `script_location = %(here)s/alembic`, `prepend_sys_path = .`, `sqlalchemy.url` left empty (URL comes from `env.py`), and `file_template = %%(rev)s_%%(slug)s`. `env.py` is then replaced per the above.
@@ -410,12 +415,26 @@ def healthz() -> HealthResponse: return HealthResponse(status="ok")
 def readyz(check: Annotated[DatabaseCheck, Depends(get_database_check)]) -> ReadyResponse | JSONResponse:
     try:
         check()
-    except SQLAlchemyError:
+    except (SQLAlchemyError, SchemaNotCurrent):
         logger.warning("readiness check failed", exc_info=True)
         return JSONResponse(status_code=503, content=ReadyResponse(status="unavailable", database="error").model_dump())
     return ReadyResponse(status="ok", database="ok")
 ```
 All dependencies use `Annotated[..., Depends(...)]` (no `Depends()` in defaults → ruff B008 clean). Routes are sync `def`. Worst-case `/readyz` latency ≈ 2 s pool wait + 2 s connect timeout + 2 s statement timeout.
+
+**Schema check (added 2026-10-02, after production ran with zero tables because the pre-deploy
+migration never ran and `SELECT 1` stayed green).** `check_database` reads `alembic_version`
+instead of `SELECT 1` and compares it with this code's Alembic head (read once per process from
+`api/alembic/`; `create_app` loads it at startup so a missing or branched migrations folder fails
+the boot, not every probe):
+- table missing, table empty, or only revisions this code knows that are not the head → **503**
+  (`SchemaNotCurrent` or the `SQLAlchemyError` from the missing table; same body, nothing leaked);
+- at the head → **200**;
+- a revision this code does not know → **200**: Railway runs the next release's migrations while
+  the old container still serves, and expand → contract keeps that container compatible.
+Consequence for future migrations: never drop or rename `alembic_version` (the old container reads
+it). Railway health-checks only a deploying container, so this blocks exactly a release whose
+pre-deploy migration did not run.
 
 `app/main.py`:
 ```python
@@ -654,6 +673,9 @@ Rejects: duplicate `line_id`; discount with `total_cents=1`; item with `total_ce
 - `/readyz` with `app.dependency_overrides[get_database_check] = lambda: failing_check` where `failing_check()` raises `OperationalError("SELECT 1", {}, Exception("secret-conn-detail"))` → 503 `{"status": "unavailable", "database": "error"}` and `"secret-conn-detail" not in response.text`.
 - Same with `ArgumentError("secret-conn-detail")` → 503, detail not leaked.
 - `@pytest.mark.db` app built with `Settings(database_url=test_database_url, environment="local")` and **no** overrides → `/readyz` 200 `{"status": "ok", "database": "ok"}`.
+- `@pytest.mark.db` schema regression: `downgrade base` (empty `alembic_version`) → 503; `DROP TABLE
+  alembic_version` (the production incident) → 503 with the standard body; `upgrade 0001` → 503;
+  `upgrade head` → 200. Separately, `alembic_version` set to an unknown revision → 200.
 - `@pytest.mark.db` isolation regression: process `DATABASE_URL` set to the reachable test DB (`get_settings.cache_clear()`), app built with settings pointing at a missing database → `/readyz` 503 (proves DB dependencies use `app.state.settings`, not the global URL).
 
 **`tests/routes/test_cors.py`**

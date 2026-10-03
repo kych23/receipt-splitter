@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
+from app.db.session import migration_revisions
 from app.logging_config import configure_logging
 from app.middleware import BodySizeLimitMiddleware, JsonErrorMiddleware
 from app.ratelimit import RateLimiter, RateLimitMiddleware, RateLimits
@@ -16,6 +17,9 @@ def create_app(
     clock: Callable[[], float] | None = None,
 ) -> FastAPI:
     configure_logging()
+    # Fail at startup, with a clear error, if the migration scripts are missing or have two heads;
+    # otherwise /readyz would 500 on every probe. Also keeps the cold read off the first probe.
+    migration_revisions()
     settings = settings or get_settings()
     app = FastAPI(
         title="receipt-splitter API",

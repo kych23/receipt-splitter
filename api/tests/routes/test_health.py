@@ -1,9 +1,11 @@
 from collections.abc import Callable, Iterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.exc import ArgumentError, OperationalError
 
 from app.config import Settings, get_settings
@@ -85,3 +87,55 @@ def test_app_uses_its_own_settings_not_the_global_database_url(
     finally:
         get_settings.cache_clear()
     assert response.status_code == 503
+
+
+@pytest.mark.db
+def test_readyz_requires_the_schema_at_the_code_head(
+    migrated_engine: Engine, alembic_config: Config, test_database_url: str
+) -> None:
+    """Regression: production ran for weeks with no tables while /readyz said ok (SELECT 1 only).
+
+    Readiness must fail when migrations haven't run (or stopped early), so a deploy whose
+    pre-deploy migration didn't run fails its healthcheck instead of going live.
+    """
+    app = create_app(Settings(_env_file=None, database_url=test_database_url, environment="local"))
+    try:
+        with TestClient(app) as client:
+            command.downgrade(alembic_config, "base")  # alembic_version left empty
+            assert client.get("/readyz").status_code == 503
+
+            # The production incident: no tables at all, not even alembic_version.
+            with migrated_engine.begin() as conn:
+                conn.execute(text("DROP TABLE alembic_version"))
+            response = client.get("/readyz")
+            assert response.status_code == 503
+            assert response.json() == {"status": "unavailable", "database": "error"}
+
+            command.upgrade(alembic_config, "0001")  # known but older revision
+            response = client.get("/readyz")
+            assert response.status_code == 503
+            assert response.json() == {"status": "unavailable", "database": "error"}
+
+            command.upgrade(alembic_config, "head")
+            assert client.get("/readyz").status_code == 200
+    finally:
+        command.upgrade(alembic_config, "head")
+
+
+@pytest.mark.db
+def test_readyz_accepts_a_newer_revision_than_the_code_knows(
+    migrated_engine: Engine, test_database_url: str
+) -> None:
+    """Railway migrates while the old container still serves; expand → contract keeps it working."""
+    with migrated_engine.begin() as conn:
+        original = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        conn.execute(text("UPDATE alembic_version SET version_num = 'ffff_future'"))
+    try:
+        app = create_app(
+            Settings(_env_file=None, database_url=test_database_url, environment="local")
+        )
+        with TestClient(app) as client:
+            assert client.get("/readyz").status_code == 200
+    finally:
+        with migrated_engine.begin() as conn:
+            conn.execute(text("UPDATE alembic_version SET version_num = :v"), {"v": original})
